@@ -98,16 +98,55 @@
 
     .board {
       display: grid;
-      grid-template-columns: repeat(5, minmax(0, 1fr));
-      gap: 10px;
+      grid-template-columns: repeat(11, minmax(0, 1fr));
+      grid-template-rows: repeat(11, minmax(0, 1fr));
+      gap: 8px;
+      width: 100%;
+      aspect-ratio: 1 / 1;
+      align-self: start;
     }
 
+    .board-center,
     .tile {
       border: 1px solid var(--line);
       border-radius: 14px;
       padding: 10px;
-      min-height: 110px;
       background: rgba(255, 255, 255, 0.75);
+    }
+
+    .board-center {
+      grid-column: 2 / 11;
+      grid-row: 2 / 11;
+      display: grid;
+      place-items: center;
+      text-align: center;
+      background:
+        radial-gradient(circle at top, rgba(187, 62, 3, 0.12), transparent 35%),
+        linear-gradient(135deg, rgba(255, 255, 255, 0.95), rgba(255, 248, 232, 0.92));
+      border-style: dashed;
+    }
+
+    .board-center strong {
+      display: block;
+      font-size: 28px;
+      font-family: "Space Grotesk", "IBM Plex Sans", sans-serif;
+      margin-bottom: 8px;
+    }
+
+    .tile {
+      min-width: 0;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+      gap: 4px;
+      padding: 8px;
+      font-size: 12px;
+    }
+
+    .tile strong {
+      font-size: 12px;
+      line-height: 1.2;
     }
 
     .tile.active {
@@ -115,10 +154,16 @@
       box-shadow: inset 0 0 0 2px rgba(187, 62, 3, 0.15);
     }
 
+    .tile.corner {
+      background: rgba(254, 215, 170, 0.35);
+      border-color: rgba(187, 62, 3, 0.24);
+    }
+
     .tile small {
       display: block;
       opacity: 0.7;
-      margin-top: 4px;
+      margin-top: 0;
+      line-height: 1.2;
     }
 
     .pill {
@@ -168,6 +213,33 @@
     @media (max-width: 900px) {
       .layout {
         grid-template-columns: 1fr;
+      }
+
+      .board {
+        gap: 6px;
+      }
+
+      .tile {
+        padding: 6px;
+        font-size: 10px;
+      }
+
+      .tile strong {
+        font-size: 10px;
+      }
+
+      .board-center strong {
+        font-size: 20px;
+      }
+    }
+
+    @media (max-width: 640px) {
+      .board-center {
+        padding: 12px;
+      }
+
+      .board-center .meta {
+        font-size: 12px;
       }
     }
   </style>
@@ -260,6 +332,16 @@
       audit: "проверка",
       jackpot: "джекпот"
     };
+    const boardPositions = [
+      [11, 11],
+      [11, 10], [11, 9], [11, 8], [11, 7], [11, 6], [11, 5], [11, 4], [11, 3], [11, 2],
+      [11, 1],
+      [10, 1], [9, 1], [8, 1], [7, 1], [6, 1], [5, 1], [4, 1], [3, 1], [2, 1],
+      [1, 1],
+      [1, 2], [1, 3], [1, 4], [1, 5], [1, 6], [1, 7], [1, 8], [1, 9], [1, 10],
+      [1, 11],
+      [2, 11], [3, 11], [4, 11], [5, 11], [6, 11], [7, 11], [8, 11], [9, 11], [10, 11]
+    ];
 
     const log = (message) => {
       const timestamp = new Date().toLocaleTimeString();
@@ -339,10 +421,27 @@
 
     const renderBoard = () => {
       boardNode.innerHTML = "";
+      const centerNode = document.createElement("div");
+      centerNode.className = "board-center";
+      centerNode.innerHTML = `
+        <div>
+          <strong>Deupoly</strong>
+          <div class="meta">Раунд: ${state.round}</div>
+          <div class="meta">Фаза: ${phaseLabels[state.phase] || state.phase}</div>
+          <div class="meta">Текущий ход: ${state.players[state.current_turn]?.name || "-"}</div>
+          <div class="meta">${state.last_event || "Ожидание действий игроков"}</div>
+        </div>
+      `;
+      boardNode.appendChild(centerNode);
+
       state.board.forEach((tile) => {
         const owners = state.players.filter((player) => player.position === tile.id).map((player) => player.name);
         const tileNode = document.createElement("div");
-        tileNode.className = `tile ${owners.length ? "active" : ""}`;
+        const [row, column] = boardPositions[tile.id];
+        const isCorner = [0, 10, 20, 30].includes(tile.id);
+        tileNode.className = `tile ${owners.length ? "active" : ""} ${isCorner ? "corner" : ""}`.trim();
+        tileNode.style.gridRow = String(row);
+        tileNode.style.gridColumn = String(column);
         tileNode.innerHTML = `
           <strong>#${tile.id} ${tile.name}</strong>
           <small>${tileTypeLabels[tile.type] || tile.type}</small>
