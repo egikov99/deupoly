@@ -40,7 +40,7 @@ class GameManager:
 
         state = await self._storage.load_state(game_id)
         if state is None:
-            raise GameNotFoundError(f"Game {game_id} not found.")
+            raise GameNotFoundError(f"Игра {game_id} не найдена.")
 
         session = GameSession(engine=GameEngine.from_state(state))
         self._games[game_id] = session
@@ -79,7 +79,7 @@ class GameManager:
         session = await self.get_session(game_id)
         player = self._get_player(session, player_id)
         if player is None:
-            raise InvalidActionError("Unknown player_id for this game.")
+            raise InvalidActionError("Неизвестный player_id для этой игры.")
         session.connections.setdefault(player_id, set()).add(websocket)
         player.is_connected = True
         await self._persist_session(session)

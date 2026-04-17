@@ -38,7 +38,7 @@ def get_router() -> APIRouter:
         gm: GameManager = websocket.app.state.game_manager
         player_id = websocket.query_params.get("player_id")
         if not player_id:
-            await websocket.close(code=4400, reason="player_id query parameter is required")
+            await websocket.close(code=4400, reason="Требуется query-параметр player_id")
             return
 
         await websocket.accept()
@@ -58,7 +58,7 @@ def get_router() -> APIRouter:
             await gm.send_error(websocket, game_id=game_id, message=str(exc))
             await websocket.close(code=4400, reason=str(exc))
         except Exception as exc:
-            await gm.send_error(websocket, game_id=game_id, message=f"Unexpected server error: {exc}")
-            await websocket.close(code=1011, reason="Unexpected server error")
+            await gm.send_error(websocket, game_id=game_id, message=f"Непредвиденная ошибка сервера: {exc}")
+            await websocket.close(code=1011, reason="Непредвиденная ошибка сервера")
 
     return router

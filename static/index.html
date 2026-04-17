@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Deupoly MVP</title>
+  <title>Deupoly</title>
   <style>
     :root {
       --bg: #f7f4ed;
@@ -176,54 +176,54 @@
   <div class="layout">
     <section class="panel stack">
       <div>
-        <h1>Deupoly MVP</h1>
-        <div class="meta">FastAPI + WebSocket authoritative server</div>
+        <h1>Deupoly</h1>
+        <div class="meta">Авторитарный сервер FastAPI + WebSocket</div>
       </div>
 
       <div class="stack">
-        <input id="player-name" placeholder="Player name" value="Player 1" />
-        <button id="create-game">Create game</button>
-        <input id="game-id" placeholder="Game ID" />
-        <button id="join-game" class="secondary">Join game</button>
-        <button id="start-game">Start game</button>
+        <input id="player-name" placeholder="Имя игрока" value="Игрок 1" />
+        <button id="create-game">Создать игру</button>
+        <input id="game-id" placeholder="ID игры" />
+        <button id="join-game" class="secondary">Войти в игру</button>
+        <button id="start-game">Начать игру</button>
       </div>
 
       <div class="stack">
-        <button id="roll-dice">Roll dice</button>
-        <button id="buy-property">Buy property</button>
-        <button id="decline-property" class="secondary">Decline property</button>
-        <button id="start-auction" class="secondary">Start auction</button>
-        <input id="bid-value" type="number" min="0" placeholder="Bid value" />
-        <button id="place-bid">Place bid</button>
-        <button id="pass-auction" class="warn">Pass auction</button>
-        <button id="leave-jail" class="secondary">Pay 50 to leave jail</button>
-        <button id="end-turn">End turn</button>
+        <button id="roll-dice">Бросить кубики</button>
+        <button id="buy-property">Купить клетку</button>
+        <button id="decline-property" class="secondary">Отказаться от покупки</button>
+        <button id="start-auction" class="secondary">Запустить аукцион</button>
+        <input id="bid-value" type="number" min="0" placeholder="Ставка" />
+        <button id="place-bid">Сделать ставку</button>
+        <button id="pass-auction" class="warn">Пас</button>
+        <button id="leave-jail" class="secondary">Заплатить 50 и выйти</button>
+        <button id="end-turn">Завершить ход</button>
       </div>
 
       <div class="stack">
-        <h3>Session</h3>
-        <div id="session" class="meta">No active session</div>
+        <h3>Сессия</h3>
+        <div id="session" class="meta">Нет активной сессии</div>
       </div>
 
       <div class="stack">
-        <h3>Log</h3>
+        <h3>Лог</h3>
         <pre id="log"></pre>
       </div>
     </section>
 
     <section class="panel stack">
       <div>
-        <h2>Players</h2>
+        <h2>Игроки</h2>
         <div id="players" class="players"></div>
       </div>
 
       <div>
-        <h2>Board</h2>
+        <h2>Поле</h2>
         <div id="board" class="board"></div>
       </div>
 
       <div>
-        <h2>State</h2>
+        <h2>Состояние</h2>
         <pre id="state"></pre>
       </div>
     </section>
@@ -243,6 +243,23 @@
     let state = null;
     let playerId = null;
     let gameId = null;
+    const phaseLabels = {
+      waiting_for_players: "ожидание игроков",
+      waiting_for_roll: "ожидание броска",
+      waiting_for_action: "ожидание действия",
+      auction_active: "идёт аукцион",
+      finished: "завершена"
+    };
+    const tileTypeLabels = {
+      start: "старт",
+      property: "недвижимость",
+      transport: "транспорт",
+      tax: "налог",
+      chance: "событие",
+      jail: "тюрьма",
+      audit: "проверка",
+      jackpot: "джекпот"
+    };
 
     const log = (message) => {
       const timestamp = new Date().toLocaleTimeString();
@@ -256,7 +273,7 @@
       });
       if (!response.ok) {
         const text = await response.text();
-        throw new Error(text || response.statusText);
+        throw new Error(text || "Ошибка запроса");
       }
       return response.json();
     };
@@ -268,15 +285,15 @@
       const protocol = window.location.protocol === "https:" ? "wss" : "ws";
       ws = new WebSocket(`${protocol}://${window.location.host}/api/ws/games/${gameId}?player_id=${playerId}`);
 
-      ws.onopen = () => log("WebSocket connected");
+      ws.onopen = () => log("WebSocket подключён");
       ws.onmessage = (event) => {
         const message = JSON.parse(event.data);
         if (message.type === "error") {
-          log(`Error: ${message.payload.message}`);
+          log(`Ошибка: ${message.payload.message}`);
           return;
         }
         if (message.payload?.card?.title) {
-          log(`Event card: ${message.payload.card.title}`);
+          log(`Карточка события: ${message.payload.card.title}`);
         }
         if (message.payload?.message) {
           log(message.payload.message);
@@ -287,20 +304,20 @@
         }
         if (message.type === "dice_result" && message.payload?.dice) {
           const dice = message.payload.dice;
-          log(`Dice: ${dice.first} + ${dice.second} = ${dice.total}`);
+          log(`Кубики: ${dice.first} + ${dice.second} = ${dice.total}`);
         }
       };
-      ws.onclose = () => log("WebSocket disconnected");
+      ws.onclose = () => log("WebSocket отключён");
     };
 
     const renderState = () => {
       if (!state) return;
       stateNode.textContent = JSON.stringify(state, null, 2);
-      sessionNode.textContent = `game=${state.id} player=${playerId || "-" } phase=${state.phase} round=${state.round}`;
+      sessionNode.textContent = `игра=${state.id} игрок=${playerId || "-"} фаза=${phaseLabels[state.phase] || state.phase} раунд=${state.round}`;
       renderPlayers();
       renderBoard();
       if (state.last_event) {
-        log(`State: ${state.last_event}`);
+        log(`Состояние: ${state.last_event}`);
       }
     };
 
@@ -312,9 +329,9 @@
         card.className = `player-card ${player.id === currentPlayerId ? "current" : ""}`;
         card.innerHTML = `
           <strong>${player.name}</strong>
-          <div class="meta">Money: ${player.money} | Pos: ${player.position} | Refusals: ${player.refusals_used}/4</div>
-          <div class="meta">Jail: ${player.in_jail ? `yes (${player.jail_turns})` : "no"} | Connected: ${player.is_connected}</div>
-          <div>${player.properties.map((id) => `<span class="pill">#${id}</span>`).join("") || "<span class='meta'>No assets</span>"}</div>
+          <div class="meta">Деньги: ${player.money} | Позиция: ${player.position} | Отказы: ${player.refusals_used}/4</div>
+          <div class="meta">Тюрьма: ${player.in_jail ? `да (${player.jail_turns})` : "нет"} | Онлайн: ${player.is_connected ? "да" : "нет"}</div>
+          <div>${player.properties.map((id) => `<span class="pill">#${id}</span>`).join("") || "<span class='meta'>Нет активов</span>"}</div>
         `;
         playersNode.appendChild(card);
       });
@@ -328,10 +345,10 @@
         tileNode.className = `tile ${owners.length ? "active" : ""}`;
         tileNode.innerHTML = `
           <strong>#${tile.id} ${tile.name}</strong>
-          <small>${tile.type}</small>
-          <small>Price: ${tile.price} | Rent: ${tile.base_rent}</small>
-          <small>Owner: ${tile.owner_id || "-"}</small>
-          <small>Players: ${owners.join(", ") || "-"}</small>
+          <small>${tileTypeLabels[tile.type] || tile.type}</small>
+          <small>Цена: ${tile.price} | Аренда: ${tile.base_rent}</small>
+          <small>Владелец: ${tile.owner_id || "-"}</small>
+          <small>Игроки: ${owners.join(", ") || "-"}</small>
         `;
         boardNode.appendChild(tileNode);
       });
@@ -339,7 +356,7 @@
 
     const sendAction = (action, payload = {}) => {
       if (!ws || ws.readyState !== WebSocket.OPEN) {
-        log("WebSocket is not connected");
+        log("WebSocket не подключён");
         return;
       }
       ws.send(JSON.stringify({ action, payload }));
@@ -352,7 +369,7 @@
       });
       gameId = data.game_id;
       gameIdInput.value = gameId;
-      log(`Created game ${gameId}`);
+      log(`Создана игра ${gameId}`);
     };
 
     document.getElementById("join-game").onclick = async () => {
@@ -360,19 +377,19 @@
       if (!gameId) return;
       const data = await api(`/api/games/${gameId}/players`, {
         method: "POST",
-        body: JSON.stringify({ name: playerNameInput.value.trim() || "Player" })
+        body: JSON.stringify({ name: playerNameInput.value.trim() || "Игрок" })
       });
       playerId = data.player.id;
       state = data.state;
       renderState();
       connectWs();
-      log(`Joined game as ${data.player.name}`);
+      log(`Подключение к игре как ${data.player.name}`);
     };
 
     document.getElementById("start-game").onclick = async () => {
       gameId = gameIdInput.value.trim();
       await api(`/api/games/${gameId}/start`, { method: "POST" });
-      log("Game started");
+      log("Игра началась");
     };
 
     document.getElementById("roll-dice").onclick = () => sendAction("roll_dice");
@@ -386,4 +403,3 @@
   </script>
 </body>
 </html>
-

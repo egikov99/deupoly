@@ -45,21 +45,21 @@ class GameEngine:
 
     def add_player(self, name: str) -> Player:
         if self.game.phase != GamePhase.WAITING_FOR_PLAYERS:
-            raise InvalidActionError("Game has already started.")
+            raise InvalidActionError("Игра уже началась.")
         if len(self.game.players) >= self.game.max_players:
-            raise InvalidActionError("Game is full.")
+            raise InvalidActionError("Игра уже заполнена.")
         cleaned_name = name.strip()
         if not cleaned_name:
-            raise InvalidActionError("Player name cannot be empty.")
+            raise InvalidActionError("Имя игрока не может быть пустым.")
 
         player = Player(id=str(uuid4()), name=cleaned_name)
         self.game.players.append(player)
-        self._set_last_event(f"{player.name} joined the game.")
+        self._set_last_event(f"{player.name} присоединился к игре.")
         return player
 
     def start_game(self) -> list[ServerEvent]:
         if len(self.active_players) < 2:
-            raise InvalidActionError("At least two players are required to start.")
+            raise InvalidActionError("Для старта нужно минимум два игрока.")
         random.shuffle(self.game.players)
         for player in self.game.players:
             player.is_active = True
@@ -68,7 +68,7 @@ class GameEngine:
         self.game.phase = GamePhase.WAITING_FOR_ROLL
         self._refresh_player_assets()
         self._apply_turn_economy(self.current_player)
-        self._set_last_event(f"Game started. {self.current_player.name} moves first.")
+        self._set_last_event(f"Игра началась. Первым ходит {self.current_player.name}.")
         return [
             self._event(ServerEventType.TURN_CHANGE, {"current_player_id": self.current_player.id}),
             self._state_event(),
@@ -82,7 +82,7 @@ class GameEngine:
     ) -> list[ServerEvent]:
         payload = payload or {}
         if self.game.phase == GamePhase.FINISHED:
-            raise InvalidActionError("Game has already finished.")
+            raise InvalidActionError("Игра уже завершена.")
 
         if action in {
             ClientAction.ROLL_DICE,
@@ -92,7 +92,7 @@ class GameEngine:
             ClientAction.END_TURN,
             ClientAction.LEAVE_JAIL,
         } and player_id != self.current_player.id:
-            raise InvalidActionError("Only the active player can perform this action.")
+            raise InvalidActionError("Это действие может выполнить только активный игрок.")
 
         if action in {ClientAction.PLACE_BID, ClientAction.PASS_AUCTION}:
             return self._process_auction_action(player_id, action, payload)
@@ -110,7 +110,7 @@ class GameEngine:
         if action == ClientAction.LEAVE_JAIL:
             return self._pay_to_leave_jail()
 
-        raise InvalidActionError("Unsupported action.")
+        raise InvalidActionError("Неподдерживаемое действие.")
 
     @property
     def active_players(self) -> list[Player]:
@@ -120,13 +120,13 @@ class GameEngine:
     def current_player(self) -> Player:
         active = self.active_players
         if not active:
-            raise InvalidActionError("No active players left.")
+            raise InvalidActionError("В игре не осталось активных игроков.")
         self.game.current_turn %= len(active)
         return active[self.game.current_turn]
 
     def _roll_dice(self) -> list[ServerEvent]:
         if self.game.phase != GamePhase.WAITING_FOR_ROLL:
-            raise InvalidActionError("Dice roll is not allowed right now.")
+            raise InvalidActionError("Сейчас бросать кубики нельзя.")
 
         player = self.current_player
         dice = self._make_dice()
@@ -138,7 +138,7 @@ class GameEngine:
             if dice.is_double:
                 player.in_jail = False
                 player.jail_turns = 0
-                self._set_last_event(f"{player.name} rolled doubles and left jail.")
+                self._set_last_event(f"{player.name} выбросил дубль и вышел из тюрьмы.")
                 events.extend(self._move_player(player, dice.total))
                 return self._finish_action_events(events)
 
@@ -146,9 +146,9 @@ class GameEngine:
             if player.jail_turns == 0:
                 player.money -= 50
                 player.in_jail = False
-                self._set_last_event(f"{player.name} paid 50 and will leave jail next turn.")
+                self._set_last_event(f"{player.name} заплатил 50 и выйдет из тюрьмы на следующем ходу.")
             else:
-                self._set_last_event(f"{player.name} stays in jail for {player.jail_turns} more turns.")
+                self._set_last_event(f"{player.name} остаётся в тюрьме ещё на {player.jail_turns} ход(а).")
             return self._finish_action_events(events)
 
         events.extend(self._move_player(player, dice.total))
@@ -165,7 +165,7 @@ class GameEngine:
             player.money += bonus
 
         tile = self.game.board[new_position]
-        self._set_last_event(f"{player.name} moved to {tile.name}.")
+        self._set_last_event(f"{player.name} переместился на клетку «{tile.name}».")
         return self._resolve_tile(player, tile, passed_start)
 
     def _resolve_tile(self, player: Player, tile: Tile, passed_start: bool) -> list[ServerEvent]:
@@ -173,30 +173,30 @@ class GameEngine:
         self.game.pending_tile_id = None
 
         if tile.type == TileType.START and passed_start:
-            self._set_last_event(f"{player.name} landed on Start and received 400.")
+            self._set_last_event(f"{player.name} остановился на «Старт» и получил 400.")
         elif tile.type in {TileType.PROPERTY, TileType.TRANSPORT}:
             if tile.owner_id is None:
                 self.game.pending_tile_id = tile.id
                 self.game.phase = GamePhase.WAITING_FOR_ACTION
-                self._set_last_event(f"{player.name} can buy {tile.name} for {tile.price}.")
+                self._set_last_event(f"{player.name} может купить «{tile.name}» за {tile.price}.")
             elif tile.owner_id == player.id:
                 self.game.phase = GamePhase.WAITING_FOR_ACTION
-                self._set_last_event(f"{player.name} is resting on their own tile {tile.name}.")
+                self._set_last_event(f"{player.name} находится на своей клетке «{tile.name}».")
             else:
                 rent = self._calculate_rent(tile)
                 owner = self._find_player(tile.owner_id)
                 self._transfer_money(player, owner, rent)
                 self.game.phase = GamePhase.WAITING_FOR_ACTION
-                self._set_last_event(f"{player.name} paid {rent} rent to {owner.name}.")
+                self._set_last_event(f"{player.name} заплатил {rent} аренды игроку {owner.name}.")
         elif tile.type == TileType.TAX:
             tax = max(int(player.money * 0.10), 0)
             player.money -= tax
             self.game.phase = GamePhase.WAITING_FOR_ACTION
-            self._set_last_event(f"{player.name} paid {tax} tax.")
+            self._set_last_event(f"{player.name} заплатил налог {tax}.")
         elif tile.type == TileType.JACKPOT:
             player.money += 300
             self.game.phase = GamePhase.WAITING_FOR_ACTION
-            self._set_last_event(f"{player.name} received 300 from Jackpot.")
+            self._set_last_event(f"{player.name} получил 300 из джекпота.")
         elif tile.type == TileType.AUDIT:
             audit_roll = self._make_dice()
             events.append(
@@ -207,10 +207,10 @@ class GameEngine:
             )
             if audit_roll.is_double or audit_roll.total > 8:
                 self._send_to_jail(player)
-                self._set_last_event(f"{player.name} failed the audit and was sent to jail.")
+                self._set_last_event(f"{player.name} провалил проверку и отправлен в тюрьму.")
             else:
                 self.game.phase = GamePhase.WAITING_FOR_ACTION
-                self._set_last_event(f"{player.name} passed the audit.")
+                self._set_last_event(f"{player.name} успешно прошёл проверку.")
         elif tile.type == TileType.CHANCE:
             card = self._draw_event_card()
             events.extend(self._apply_event_card(player, card))
@@ -225,7 +225,7 @@ class GameEngine:
         player = self.current_player
 
         if player.money < tile.price:
-            raise InvalidActionError("Not enough money to buy this tile.")
+            raise InvalidActionError("Недостаточно денег для покупки этой клетки.")
 
         player.money -= tile.price
         tile.owner_id = player.id
@@ -233,7 +233,7 @@ class GameEngine:
         self._refresh_player_assets()
         self.game.pending_tile_id = None
         self.game.phase = GamePhase.WAITING_FOR_ACTION
-        self._set_last_event(f"{player.name} bought {tile.name} for {tile.price}.")
+        self._set_last_event(f"{player.name} купил «{tile.name}» за {tile.price}.")
         return self._finish_action_events([])
 
     def _decline_pending_property(self) -> list[ServerEvent]:
@@ -241,12 +241,12 @@ class GameEngine:
         player = self.current_player
 
         if player.refusals_used >= 4:
-            raise InvalidActionError("Decline limit reached. Start an auction instead.")
+            raise InvalidActionError("Лимит отказов исчерпан. Запустите аукцион.")
 
         player.refusals_used += 1
         self.game.pending_tile_id = None
         self.game.phase = GamePhase.WAITING_FOR_ACTION
-        self._set_last_event(f"{player.name} declined to buy {tile.name}.")
+        self._set_last_event(f"{player.name} отказался покупать «{tile.name}».")
         return self._finish_action_events([])
 
     def _start_auction(self) -> list[ServerEvent]:
@@ -260,7 +260,7 @@ class GameEngine:
             participants=participants,
         )
         self.game.phase = GamePhase.AUCTION_ACTIVE
-        self._set_last_event(f"Auction started for {tile.name} at {tile.price}.")
+        self._set_last_event(f"Запущен аукцион за «{tile.name}» со стартовой ценой {tile.price}.")
         return self._finish_action_events(
             [self._event(ServerEventType.AUCTION_UPDATE, {"auction": self.game.auction.model_dump(mode="json")})]
         )
@@ -268,25 +268,25 @@ class GameEngine:
     def _process_auction_action(self, player_id: str, action: ClientAction, payload: dict) -> list[ServerEvent]:
         auction = self.game.auction
         if auction is None or not auction.active:
-            raise InvalidActionError("No active auction.")
+            raise InvalidActionError("Сейчас нет активного аукциона.")
         if player_id not in auction.participants:
-            raise InvalidActionError("This player is not allowed to participate in the auction.")
+            raise InvalidActionError("Этот игрок не может участвовать в аукционе.")
         if player_id in auction.passed_players:
-            raise InvalidActionError("Player has already passed.")
+            raise InvalidActionError("Игрок уже спасовал.")
 
         player = self._find_player(player_id)
 
         if action == ClientAction.PASS_AUCTION:
             auction.passed_players.append(player_id)
-            self._set_last_event(f"{player.name} passed in the auction.")
+            self._set_last_event(f"{player.name} спасовал на аукционе.")
         else:
             bid = int(payload.get("bid", 0))
             minimum = auction.current_price + 10
             if bid < minimum:
-                raise InvalidActionError(f"Minimum bid is {minimum}.")
+                raise InvalidActionError(f"Минимальная ставка: {minimum}.")
             auction.current_price = bid
             auction.current_winner = player_id
-            self._set_last_event(f"{player.name} bid {bid}.")
+            self._set_last_event(f"{player.name} сделал ставку {bid}.")
 
         events = [self._event(ServerEventType.AUCTION_UPDATE, {"auction": auction.model_dump(mode="json")})]
         active_bidders = [pid for pid in auction.participants if pid not in auction.passed_players]
@@ -306,7 +306,7 @@ class GameEngine:
 
         if auction.current_winner is None:
             auction.active = False
-            self._set_last_event(f"Auction for {tile.name} ended without bids.")
+            self._set_last_event(f"Аукцион за «{tile.name}» завершился без ставок.")
         else:
             winner = self._find_player(auction.current_winner)
             initiator = self._find_player(auction.initiator_id)
@@ -318,14 +318,14 @@ class GameEngine:
                 bonus = int((auction.current_price - tile.price) * 0.15)
                 initiator.money += max(bonus, 0)
                 self._set_last_event(
-                    f"{winner.name} won the auction for {tile.name} at {auction.current_price}. "
-                    f"{initiator.name} received {max(bonus, 0)} bonus."
+                    f"{winner.name} выиграл аукцион за «{tile.name}» со ставкой {auction.current_price}. "
+                    f"{initiator.name} получил бонус {max(bonus, 0)}."
                 )
             else:
                 penalty = max(int(max(winner.money, 0) * 0.10), 100)
                 winner.money -= penalty
                 self._set_last_event(
-                    f"{winner.name} could not pay for {tile.name} and received a {penalty} penalty."
+                    f"{winner.name} не смог оплатить «{tile.name}» и получил штраф {penalty}."
                 )
             auction.active = False
 
@@ -337,7 +337,7 @@ class GameEngine:
 
     def _end_turn(self) -> list[ServerEvent]:
         if self.game.phase != GamePhase.WAITING_FOR_ACTION:
-            raise InvalidActionError("Turn cannot be ended right now.")
+            raise InvalidActionError("Сейчас нельзя завершить ход.")
 
         self.game.pending_tile_id = None
         self.game.dice = None
@@ -352,17 +352,17 @@ class GameEngine:
     def _pay_to_leave_jail(self) -> list[ServerEvent]:
         player = self.current_player
         if self.game.phase != GamePhase.WAITING_FOR_ROLL:
-            raise InvalidActionError("You can only pay to leave jail before rolling.")
+            raise InvalidActionError("Оплатить выход из тюрьмы можно только до броска кубиков.")
         if not player.in_jail:
-            raise InvalidActionError("Player is not in jail.")
+            raise InvalidActionError("Игрок не находится в тюрьме.")
         if player.money < 50:
-            raise InvalidActionError("Not enough money to leave jail.")
+            raise InvalidActionError("Недостаточно денег для выхода из тюрьмы.")
 
         player.money -= 50
         player.in_jail = False
         player.jail_turns = 0
         self.game.phase = GamePhase.WAITING_FOR_ROLL
-        self._set_last_event(f"{player.name} paid 50 to leave jail.")
+        self._set_last_event(f"{player.name} заплатил 50 за выход из тюрьмы.")
         return self._finish_action_events([])
 
     def _advance_turn(self) -> None:
@@ -382,7 +382,7 @@ class GameEngine:
         self._check_winner()
         if self.game.phase == GamePhase.FINISHED:
             return
-        self._set_last_event(f"It is now {self.current_player.name}'s turn.")
+        self._set_last_event(f"Теперь ход игрока {self.current_player.name}.")
 
     def _apply_turn_economy(self, player: Player) -> None:
         owned_tiles = [tile for tile in self.game.board if tile.owner_id == player.id]
@@ -467,7 +467,7 @@ class GameEngine:
                 other.money += amount
             self.game.phase = GamePhase.WAITING_FOR_ACTION
 
-        self._set_last_event(f"{player.name} drew '{card.title}'.")
+        self._set_last_event(f"{player.name} вытянул карточку «{card.title}».")
         return events
 
     def _calculate_rent(self, tile: Tile) -> int:
@@ -503,7 +503,7 @@ class GameEngine:
         if len(active) <= 1 and self.game.phase != GamePhase.WAITING_FOR_PLAYERS:
             self.game.phase = GamePhase.FINISHED
             if active:
-                self._set_last_event(f"{active[0].name} won the game.")
+                self._set_last_event(f"{active[0].name} победил в игре.")
 
     def _send_to_jail(self, player: Player) -> None:
         player.position = 10
@@ -526,16 +526,16 @@ class GameEngine:
 
     def _get_pending_tile(self) -> Tile:
         if self.game.pending_tile_id is None:
-            raise InvalidActionError("No property is waiting for a decision.")
+            raise InvalidActionError("Сейчас нет клетки, ожидающей решения.")
         return self.game.board[self.game.pending_tile_id]
 
     def _find_player(self, player_id: Optional[str]) -> Player:
         if player_id is None:
-            raise InvalidActionError("Player is missing.")
+            raise InvalidActionError("Игрок не указан.")
         for player in self.game.players:
             if player.id == player_id:
                 return player
-        raise InvalidActionError("Player not found.")
+        raise InvalidActionError("Игрок не найден.")
 
     def _other_players(self, player_id: str) -> Iterable[Player]:
         return [player for player in self.active_players if player.id != player_id]
