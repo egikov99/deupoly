@@ -140,3 +140,4 @@ Server events:
 - Runtime state is cached in Redis and snapshotted into PostgreSQL after every mutating action.
 - WebSocket connections still live in-process, so horizontal scaling would require a shared pub/sub layer for fan-out.
 - GitHub Actions runs tests on `main` and `dev`; a successful `main` push is then synchronized automatically into `dev`.
+- nginx config is baked into its own image, which avoids Portainer bind-mount issues with single config files.
