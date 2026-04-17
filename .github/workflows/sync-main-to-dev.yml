@@ -1,0 +1,49 @@
+name: Sync Main To Dev
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types:
+      - completed
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    if: >
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Sync main into dev
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${REPOSITORY}.git"
+          git fetch origin main dev || git fetch origin main
+
+          if git show-ref --verify --quiet refs/remotes/origin/dev; then
+            git checkout -B dev origin/dev
+            git merge --ff-only origin/main || {
+              git merge --no-ff origin/main -m "chore: sync main into dev"
+            }
+          else
+            git checkout -B dev origin/main
+          fi
+
+          git push origin dev
+

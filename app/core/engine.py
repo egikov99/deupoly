@@ -1,0 +1,582 @@
+from __future__ import annotations
+
+import random
+from collections import Counter
+from typing import Iterable, Optional
+from uuid import uuid4
+
+from app.core.board import build_default_board, build_event_deck
+from app.core.exceptions import InvalidActionError
+from app.models.domain import (
+    Auction,
+    DiceResult,
+    EventCard,
+    EventEffect,
+    GamePhase,
+    GameState,
+    LoanLenderType,
+    Player,
+    Tile,
+    TileType,
+)
+from app.models.messages import ClientAction, ServerEvent, ServerEventType
+
+
+class GameEngine:
+    def __init__(self, game_id: str, max_players: int = 4) -> None:
+        self.game = GameState(
+            id=game_id,
+            board=build_default_board(),
+            events_deck=build_event_deck(),
+            max_players=max_players,
+        )
+
+    @classmethod
+    def from_state(cls, state: dict) -> "GameEngine":
+        game = GameState.model_validate(state)
+        for player in game.players:
+            player.is_connected = False
+        engine = cls.__new__(cls)
+        engine.game = game
+        return engine
+
+    def serialize_state(self) -> dict:
+        return self.game.model_dump(mode="json")
+
+    def add_player(self, name: str) -> Player:
+        if self.game.phase != GamePhase.WAITING_FOR_PLAYERS:
+            raise InvalidActionError("Game has already started.")
+        if len(self.game.players) >= self.game.max_players:
+            raise InvalidActionError("Game is full.")
+        cleaned_name = name.strip()
+        if not cleaned_name:
+            raise InvalidActionError("Player name cannot be empty.")
+
+        player = Player(id=str(uuid4()), name=cleaned_name)
+        self.game.players.append(player)
+        self._set_last_event(f"{player.name} joined the game.")
+        return player
+
+    def start_game(self) -> list[ServerEvent]:
+        if len(self.active_players) < 2:
+            raise InvalidActionError("At least two players are required to start.")
+        random.shuffle(self.game.players)
+        for player in self.game.players:
+            player.is_active = True
+        self.game.current_turn = 0
+        self.game.round = 1
+        self.game.phase = GamePhase.WAITING_FOR_ROLL
+        self._refresh_player_assets()
+        self._apply_turn_economy(self.current_player)
+        self._set_last_event(f"Game started. {self.current_player.name} moves first.")
+        return [
+            self._event(ServerEventType.TURN_CHANGE, {"current_player_id": self.current_player.id}),
+            self._state_event(),
+        ]
+
+    def process_action(
+        self,
+        player_id: str,
+        action: ClientAction,
+        payload: Optional[dict] = None,
+    ) -> list[ServerEvent]:
+        payload = payload or {}
+        if self.game.phase == GamePhase.FINISHED:
+            raise InvalidActionError("Game has already finished.")
+
+        if action in {
+            ClientAction.ROLL_DICE,
+            ClientAction.BUY_PROPERTY,
+            ClientAction.DECLINE_PROPERTY,
+            ClientAction.START_AUCTION,
+            ClientAction.END_TURN,
+            ClientAction.LEAVE_JAIL,
+        } and player_id != self.current_player.id:
+            raise InvalidActionError("Only the active player can perform this action.")
+
+        if action in {ClientAction.PLACE_BID, ClientAction.PASS_AUCTION}:
+            return self._process_auction_action(player_id, action, payload)
+
+        if action == ClientAction.ROLL_DICE:
+            return self._roll_dice()
+        if action == ClientAction.BUY_PROPERTY:
+            return self._buy_pending_property()
+        if action == ClientAction.DECLINE_PROPERTY:
+            return self._decline_pending_property()
+        if action == ClientAction.START_AUCTION:
+            return self._start_auction()
+        if action == ClientAction.END_TURN:
+            return self._end_turn()
+        if action == ClientAction.LEAVE_JAIL:
+            return self._pay_to_leave_jail()
+
+        raise InvalidActionError("Unsupported action.")
+
+    @property
+    def active_players(self) -> list[Player]:
+        return [player for player in self.game.players if player.is_active]
+
+    @property
+    def current_player(self) -> Player:
+        active = self.active_players
+        if not active:
+            raise InvalidActionError("No active players left.")
+        self.game.current_turn %= len(active)
+        return active[self.game.current_turn]
+
+    def _roll_dice(self) -> list[ServerEvent]:
+        if self.game.phase != GamePhase.WAITING_FOR_ROLL:
+            raise InvalidActionError("Dice roll is not allowed right now.")
+
+        player = self.current_player
+        dice = self._make_dice()
+        self.game.dice = dice
+
+        events = [self._event(ServerEventType.DICE_RESULT, {"player_id": player.id, "dice": dice.model_dump()})]
+
+        if player.in_jail:
+            if dice.is_double:
+                player.in_jail = False
+                player.jail_turns = 0
+                self._set_last_event(f"{player.name} rolled doubles and left jail.")
+                events.extend(self._move_player(player, dice.total))
+                return self._finish_action_events(events)
+
+            player.jail_turns = max(player.jail_turns - 1, 0)
+            if player.jail_turns == 0:
+                player.money -= 50
+                player.in_jail = False
+                self._set_last_event(f"{player.name} paid 50 and will leave jail next turn.")
+            else:
+                self._set_last_event(f"{player.name} stays in jail for {player.jail_turns} more turns.")
+            return self._finish_action_events(events)
+
+        events.extend(self._move_player(player, dice.total))
+        return self._finish_action_events(events)
+
+    def _move_player(self, player: Player, steps: int) -> list[ServerEvent]:
+        old_position = player.position
+        new_position = (player.position + steps) % len(self.game.board)
+        passed_start = old_position + steps >= len(self.game.board)
+        player.position = new_position
+
+        if passed_start:
+            bonus = 400 if new_position == 0 else 200
+            player.money += bonus
+
+        tile = self.game.board[new_position]
+        self._set_last_event(f"{player.name} moved to {tile.name}.")
+        return self._resolve_tile(player, tile, passed_start)
+
+    def _resolve_tile(self, player: Player, tile: Tile, passed_start: bool) -> list[ServerEvent]:
+        events: list[ServerEvent] = []
+        self.game.pending_tile_id = None
+
+        if tile.type == TileType.START and passed_start:
+            self._set_last_event(f"{player.name} landed on Start and received 400.")
+        elif tile.type in {TileType.PROPERTY, TileType.TRANSPORT}:
+            if tile.owner_id is None:
+                self.game.pending_tile_id = tile.id
+                self.game.phase = GamePhase.WAITING_FOR_ACTION
+                self._set_last_event(f"{player.name} can buy {tile.name} for {tile.price}.")
+            elif tile.owner_id == player.id:
+                self.game.phase = GamePhase.WAITING_FOR_ACTION
+                self._set_last_event(f"{player.name} is resting on their own tile {tile.name}.")
+            else:
+                rent = self._calculate_rent(tile)
+                owner = self._find_player(tile.owner_id)
+                self._transfer_money(player, owner, rent)
+                self.game.phase = GamePhase.WAITING_FOR_ACTION
+                self._set_last_event(f"{player.name} paid {rent} rent to {owner.name}.")
+        elif tile.type == TileType.TAX:
+            tax = max(int(player.money * 0.10), 0)
+            player.money -= tax
+            self.game.phase = GamePhase.WAITING_FOR_ACTION
+            self._set_last_event(f"{player.name} paid {tax} tax.")
+        elif tile.type == TileType.JACKPOT:
+            player.money += 300
+            self.game.phase = GamePhase.WAITING_FOR_ACTION
+            self._set_last_event(f"{player.name} received 300 from Jackpot.")
+        elif tile.type == TileType.AUDIT:
+            audit_roll = self._make_dice()
+            events.append(
+                self._event(
+                    ServerEventType.DICE_RESULT,
+                    {"player_id": player.id, "dice": audit_roll.model_dump(), "reason": "audit"},
+                )
+            )
+            if audit_roll.is_double or audit_roll.total > 8:
+                self._send_to_jail(player)
+                self._set_last_event(f"{player.name} failed the audit and was sent to jail.")
+            else:
+                self.game.phase = GamePhase.WAITING_FOR_ACTION
+                self._set_last_event(f"{player.name} passed the audit.")
+        elif tile.type == TileType.CHANCE:
+            card = self._draw_event_card()
+            events.extend(self._apply_event_card(player, card))
+        else:
+            self.game.phase = GamePhase.WAITING_FOR_ACTION
+
+        self._refresh_player_assets()
+        return events
+
+    def _buy_pending_property(self) -> list[ServerEvent]:
+        tile = self._get_pending_tile()
+        player = self.current_player
+
+        if player.money < tile.price:
+            raise InvalidActionError("Not enough money to buy this tile.")
+
+        player.money -= tile.price
+        tile.owner_id = player.id
+        player.properties.append(tile.id)
+        self._refresh_player_assets()
+        self.game.pending_tile_id = None
+        self.game.phase = GamePhase.WAITING_FOR_ACTION
+        self._set_last_event(f"{player.name} bought {tile.name} for {tile.price}.")
+        return self._finish_action_events([])
+
+    def _decline_pending_property(self) -> list[ServerEvent]:
+        tile = self._get_pending_tile()
+        player = self.current_player
+
+        if player.refusals_used >= 4:
+            raise InvalidActionError("Decline limit reached. Start an auction instead.")
+
+        player.refusals_used += 1
+        self.game.pending_tile_id = None
+        self.game.phase = GamePhase.WAITING_FOR_ACTION
+        self._set_last_event(f"{player.name} declined to buy {tile.name}.")
+        return self._finish_action_events([])
+
+    def _start_auction(self) -> list[ServerEvent]:
+        tile = self._get_pending_tile()
+        participants = [player.id for player in self.active_players if player.id != self.current_player.id]
+        self.game.pending_tile_id = None
+        self.game.auction = Auction(
+            tile_id=tile.id,
+            initiator_id=self.current_player.id,
+            current_price=tile.price,
+            participants=participants,
+        )
+        self.game.phase = GamePhase.AUCTION_ACTIVE
+        self._set_last_event(f"Auction started for {tile.name} at {tile.price}.")
+        return self._finish_action_events(
+            [self._event(ServerEventType.AUCTION_UPDATE, {"auction": self.game.auction.model_dump(mode="json")})]
+        )
+
+    def _process_auction_action(self, player_id: str, action: ClientAction, payload: dict) -> list[ServerEvent]:
+        auction = self.game.auction
+        if auction is None or not auction.active:
+            raise InvalidActionError("No active auction.")
+        if player_id not in auction.participants:
+            raise InvalidActionError("This player is not allowed to participate in the auction.")
+        if player_id in auction.passed_players:
+            raise InvalidActionError("Player has already passed.")
+
+        player = self._find_player(player_id)
+
+        if action == ClientAction.PASS_AUCTION:
+            auction.passed_players.append(player_id)
+            self._set_last_event(f"{player.name} passed in the auction.")
+        else:
+            bid = int(payload.get("bid", 0))
+            minimum = auction.current_price + 10
+            if bid < minimum:
+                raise InvalidActionError(f"Minimum bid is {minimum}.")
+            auction.current_price = bid
+            auction.current_winner = player_id
+            self._set_last_event(f"{player.name} bid {bid}.")
+
+        events = [self._event(ServerEventType.AUCTION_UPDATE, {"auction": auction.model_dump(mode="json")})]
+        active_bidders = [pid for pid in auction.participants if pid not in auction.passed_players]
+
+        if len(active_bidders) <= 1:
+            events.extend(self._close_auction())
+
+        return self._finish_action_events(events)
+
+    def _close_auction(self) -> list[ServerEvent]:
+        auction = self.game.auction
+        if auction is None:
+            return []
+
+        tile = self.game.board[auction.tile_id]
+        events: list[ServerEvent] = []
+
+        if auction.current_winner is None:
+            auction.active = False
+            self._set_last_event(f"Auction for {tile.name} ended without bids.")
+        else:
+            winner = self._find_player(auction.current_winner)
+            initiator = self._find_player(auction.initiator_id)
+            if winner.money >= auction.current_price:
+                winner.money -= auction.current_price
+                tile.owner_id = winner.id
+                if tile.id not in winner.properties:
+                    winner.properties.append(tile.id)
+                bonus = int((auction.current_price - tile.price) * 0.15)
+                initiator.money += max(bonus, 0)
+                self._set_last_event(
+                    f"{winner.name} won the auction for {tile.name} at {auction.current_price}. "
+                    f"{initiator.name} received {max(bonus, 0)} bonus."
+                )
+            else:
+                penalty = max(int(max(winner.money, 0) * 0.10), 100)
+                winner.money -= penalty
+                self._set_last_event(
+                    f"{winner.name} could not pay for {tile.name} and received a {penalty} penalty."
+                )
+            auction.active = False
+
+        self.game.auction = None
+        self.game.phase = GamePhase.WAITING_FOR_ACTION
+        self._refresh_player_assets()
+        events.append(self._event(ServerEventType.AUCTION_UPDATE, {"auction": None}))
+        return events
+
+    def _end_turn(self) -> list[ServerEvent]:
+        if self.game.phase != GamePhase.WAITING_FOR_ACTION:
+            raise InvalidActionError("Turn cannot be ended right now.")
+
+        self.game.pending_tile_id = None
+        self.game.dice = None
+        self._advance_turn()
+        if self.game.phase == GamePhase.FINISHED:
+            return [self._state_event()]
+        return [
+            self._event(ServerEventType.TURN_CHANGE, {"current_player_id": self.current_player.id}),
+            self._state_event(),
+        ]
+
+    def _pay_to_leave_jail(self) -> list[ServerEvent]:
+        player = self.current_player
+        if self.game.phase != GamePhase.WAITING_FOR_ROLL:
+            raise InvalidActionError("You can only pay to leave jail before rolling.")
+        if not player.in_jail:
+            raise InvalidActionError("Player is not in jail.")
+        if player.money < 50:
+            raise InvalidActionError("Not enough money to leave jail.")
+
+        player.money -= 50
+        player.in_jail = False
+        player.jail_turns = 0
+        self.game.phase = GamePhase.WAITING_FOR_ROLL
+        self._set_last_event(f"{player.name} paid 50 to leave jail.")
+        return self._finish_action_events([])
+
+    def _advance_turn(self) -> None:
+        active_players = self.active_players
+        if len(active_players) <= 1:
+            self.game.phase = GamePhase.FINISHED
+            return
+
+        self.game.current_turn = (self.game.current_turn + 1) % len(active_players)
+        if self.game.current_turn == 0:
+            self.game.round += 1
+
+        self.game.phase = GamePhase.WAITING_FOR_ROLL
+        self._apply_turn_economy(self.current_player)
+        self._process_loans(self.current_player)
+        self._refresh_player_assets()
+        self._check_winner()
+        if self.game.phase == GamePhase.FINISHED:
+            return
+        self._set_last_event(f"It is now {self.current_player.name}'s turn.")
+
+    def _apply_turn_economy(self, player: Player) -> None:
+        owned_tiles = [tile for tile in self.game.board if tile.owner_id == player.id]
+        passive_income = int(sum(self._calculate_rent(tile) for tile in owned_tiles) * 0.12)
+        maintenance = int(sum(tile.price for tile in owned_tiles) * 0.02)
+        player.money += passive_income - maintenance
+
+    def _process_loans(self, player: Player) -> None:
+        remaining_loans = []
+        for loan in player.loans:
+            loan.remaining_turns -= 1
+            if loan.remaining_turns > 0:
+                remaining_loans.append(loan)
+                continue
+
+            payment = int(loan.amount * (1 + loan.interest))
+            if loan.lender_type == LoanLenderType.BANK and player.money >= payment:
+                player.money -= payment
+                continue
+
+            if loan.lender_type == LoanLenderType.BANK:
+                overdue_payment = int(payment * 1.5)
+                if player.money >= overdue_payment:
+                    player.money -= overdue_payment
+                    continue
+                player.is_active = False
+                self._release_assets(player)
+                continue
+
+            lender = self._find_player(loan.lender_id)
+            if player.money >= payment:
+                player.money -= payment
+                lender.money += payment
+            elif loan.collateral_tile_id is not None:
+                self._transfer_tile(loan.collateral_tile_id, player.id, lender.id)
+            else:
+                player.is_active = False
+                self._release_assets(player)
+
+        player.loans = remaining_loans
+
+    def _apply_event_card(self, player: Player, card: EventCard) -> list[ServerEvent]:
+        events = [self._event(ServerEventType.INFO, {"card": card.model_dump(mode="json")})]
+
+        if card.effect == EventEffect.GAIN_MONEY:
+            player.money += card.amount
+            self.game.phase = GamePhase.WAITING_FOR_ACTION
+        elif card.effect == EventEffect.LOSE_MONEY:
+            player.money -= card.amount
+            self.game.phase = GamePhase.WAITING_FOR_ACTION
+        elif card.effect == EventEffect.MOVE_TO_START:
+            player.position = 0
+            player.money += max(card.amount, 400)
+            self.game.phase = GamePhase.WAITING_FOR_ACTION
+        elif card.effect == EventEffect.MOVE_TO_TILE and card.target_position is not None:
+            passed_start = card.target_position < player.position
+            player.position = card.target_position
+            if passed_start:
+                player.money += 200
+            events.extend(self._resolve_tile(player, self.game.board[player.position], passed_start))
+        elif card.effect == EventEffect.ROLL_DICE:
+            self.game.phase = GamePhase.WAITING_FOR_ROLL
+        elif card.effect == EventEffect.ATTACK_PLAYER:
+            target = self._next_active_player(player.id)
+            if target is not None:
+                amount = min(card.amount, max(target.money, 0))
+                target.money -= amount
+                player.money += amount
+            self.game.phase = GamePhase.WAITING_FOR_ACTION
+        elif card.effect == EventEffect.GO_TO_JAIL:
+            self._send_to_jail(player)
+        elif card.effect == EventEffect.COLLECT_FROM_PLAYERS:
+            for other in self._other_players(player.id):
+                amount = min(card.amount, max(other.money, 0))
+                other.money -= amount
+                player.money += amount
+            self.game.phase = GamePhase.WAITING_FOR_ACTION
+        elif card.effect == EventEffect.PAY_PLAYERS:
+            for other in self._other_players(player.id):
+                amount = min(card.amount, max(player.money, 0))
+                player.money -= amount
+                other.money += amount
+            self.game.phase = GamePhase.WAITING_FOR_ACTION
+
+        self._set_last_event(f"{player.name} drew '{card.title}'.")
+        return events
+
+    def _calculate_rent(self, tile: Tile) -> int:
+        if tile.type == TileType.TRANSPORT:
+            owner = self._find_player(tile.owner_id)
+            multiplier = {1: 1, 2: 2, 3: 3, 4: 5}.get(owner.transport_count, 1)
+            return tile.base_rent * multiplier
+
+        rent = tile.base_rent + int(tile.base_rent * 0.5 * tile.houses)
+        if tile.group_id and self._player_has_monopoly(tile.owner_id, tile.group_id):
+            rent += int(tile.base_rent * 0.5)
+        return rent
+
+    def _player_has_monopoly(self, player_id: Optional[str], group_id: str) -> bool:
+        if player_id is None:
+            return False
+        group_tiles = [tile for tile in self.game.board if tile.group_id == group_id]
+        return all(tile.owner_id == player_id for tile in group_tiles)
+
+    def _refresh_player_assets(self) -> None:
+        owner_map = Counter(tile.owner_id for tile in self.game.board if tile.owner_id)
+        for player in self.game.players:
+            player.properties = [tile.id for tile in self.game.board if tile.owner_id == player.id]
+            player.transport_count = sum(
+                1 for tile in self.game.board if tile.owner_id == player.id and tile.type == TileType.TRANSPORT
+            )
+            if owner_map[player.id] == 0 and player.money < 0:
+                player.is_active = False
+        self._check_winner()
+
+    def _check_winner(self) -> None:
+        active = self.active_players
+        if len(active) <= 1 and self.game.phase != GamePhase.WAITING_FOR_PLAYERS:
+            self.game.phase = GamePhase.FINISHED
+            if active:
+                self._set_last_event(f"{active[0].name} won the game.")
+
+    def _send_to_jail(self, player: Player) -> None:
+        player.position = 10
+        player.in_jail = True
+        player.jail_turns = 3
+        self.game.pending_tile_id = None
+        self.game.phase = GamePhase.WAITING_FOR_ACTION
+
+    def _make_dice(self) -> DiceResult:
+        first = random.randint(1, 6)
+        second = random.randint(1, 6)
+        return DiceResult(first=first, second=second, total=first + second, is_double=first == second)
+
+    def _draw_event_card(self) -> EventCard:
+        if not self.game.events_deck:
+            self.game.events_deck = build_event_deck()
+        card = self.game.events_deck.pop(0)
+        self.game.events_deck.append(card)
+        return card
+
+    def _get_pending_tile(self) -> Tile:
+        if self.game.pending_tile_id is None:
+            raise InvalidActionError("No property is waiting for a decision.")
+        return self.game.board[self.game.pending_tile_id]
+
+    def _find_player(self, player_id: Optional[str]) -> Player:
+        if player_id is None:
+            raise InvalidActionError("Player is missing.")
+        for player in self.game.players:
+            if player.id == player_id:
+                return player
+        raise InvalidActionError("Player not found.")
+
+    def _other_players(self, player_id: str) -> Iterable[Player]:
+        return [player for player in self.active_players if player.id != player_id]
+
+    def _next_active_player(self, player_id: str) -> Optional[Player]:
+        others = list(self._other_players(player_id))
+        return others[0] if others else None
+
+    def _transfer_money(self, payer: Player, receiver: Player, amount: int) -> None:
+        payer.money -= amount
+        receiver.money += amount
+
+    def _transfer_tile(self, tile_id: int, from_player_id: str, to_player_id: str) -> None:
+        tile = self.game.board[tile_id]
+        if tile.owner_id != from_player_id:
+            return
+        tile.owner_id = to_player_id
+        self._refresh_player_assets()
+
+    def _release_assets(self, player: Player) -> None:
+        for tile in self.game.board:
+            if tile.owner_id == player.id:
+                tile.owner_id = None
+                tile.houses = 0
+        player.properties.clear()
+        player.transport_count = 0
+
+    def _finish_action_events(self, events: list[ServerEvent]) -> list[ServerEvent]:
+        self._refresh_player_assets()
+        events.append(self._state_event())
+        return events
+
+    def _event(self, event_type: ServerEventType, payload: dict) -> ServerEvent:
+        return ServerEvent(type=event_type, game_id=self.game.id, payload=payload)
+
+    def _state_event(self) -> ServerEvent:
+        return ServerEvent(
+            type=ServerEventType.GAME_STATE_UPDATE,
+            game_id=self.game.id,
+            state=self.serialize_state(),
+        )
+
+    def _set_last_event(self, message: str) -> None:
+        self.game.last_event = message

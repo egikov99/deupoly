@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Deupoly MVP</title>
+  <style>
+    :root {
+      --bg: #f7f4ed;
+      --panel: rgba(255, 252, 244, 0.9);
+      --ink: #1c1d21;
+      --accent: #bb3e03;
+      --accent-soft: #fed7aa;
+      --line: rgba(28, 29, 33, 0.12);
+      --ok: #2d6a4f;
+      --warn: #9b2226;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at top left, rgba(250, 204, 21, 0.3), transparent 30%),
+        radial-gradient(circle at bottom right, rgba(59, 130, 246, 0.15), transparent 28%),
+        linear-gradient(135deg, #f7f4ed 0%, #fff8e8 100%);
+    }
+
+    .layout {
+      display: grid;
+      gap: 16px;
+      grid-template-columns: 380px 1fr;
+      padding: 24px;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      padding: 18px;
+      backdrop-filter: blur(10px);
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.08);
+    }
+
+    h1, h2, h3 {
+      margin: 0 0 12px;
+      font-family: "Space Grotesk", "IBM Plex Sans", sans-serif;
+    }
+
+    h1 {
+      font-size: 28px;
+    }
+
+    .stack {
+      display: grid;
+      gap: 12px;
+    }
+
+    input, button, textarea {
+      width: 100%;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      padding: 12px 14px;
+      font: inherit;
+      background: white;
+    }
+
+    button {
+      cursor: pointer;
+      font-weight: 600;
+      background: var(--accent);
+      color: white;
+      border: none;
+      transition: transform 0.15s ease, opacity 0.15s ease;
+    }
+
+    button.secondary {
+      background: #243b53;
+    }
+
+    button.warn {
+      background: var(--warn);
+    }
+
+    button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    button:hover:not(:disabled) {
+      transform: translateY(-1px);
+    }
+
+    .board {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .tile {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 10px;
+      min-height: 110px;
+      background: rgba(255, 255, 255, 0.75);
+    }
+
+    .tile.active {
+      border-color: var(--accent);
+      box-shadow: inset 0 0 0 2px rgba(187, 62, 3, 0.15);
+    }
+
+    .tile small {
+      display: block;
+      opacity: 0.7;
+      margin-top: 4px;
+    }
+
+    .pill {
+      display: inline-block;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      font-size: 12px;
+      margin-right: 6px;
+      margin-top: 6px;
+    }
+
+    pre {
+      white-space: pre-wrap;
+      word-break: break-word;
+      max-height: 260px;
+      overflow: auto;
+      border-radius: 14px;
+      background: #10151b;
+      color: #e5f4ff;
+      padding: 14px;
+      margin: 0;
+    }
+
+    .players {
+      display: grid;
+      gap: 10px;
+    }
+
+    .player-card {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 12px;
+      background: white;
+    }
+
+    .player-card.current {
+      border-color: var(--ok);
+      box-shadow: inset 0 0 0 2px rgba(45, 106, 79, 0.12);
+    }
+
+    .meta {
+      font-size: 14px;
+      opacity: 0.75;
+    }
+
+    @media (max-width: 900px) {
+      .layout {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <section class="panel stack">
+      <div>
+        <h1>Deupoly MVP</h1>
+        <div class="meta">FastAPI + WebSocket authoritative server</div>
+      </div>
+
+      <div class="stack">
+        <input id="player-name" placeholder="Player name" value="Player 1" />
+        <button id="create-game">Create game</button>
+        <input id="game-id" placeholder="Game ID" />
+        <button id="join-game" class="secondary">Join game</button>
+        <button id="start-game">Start game</button>
+      </div>
+
+      <div class="stack">
+        <button id="roll-dice">Roll dice</button>
+        <button id="buy-property">Buy property</button>
+        <button id="decline-property" class="secondary">Decline property</button>
+        <button id="start-auction" class="secondary">Start auction</button>
+        <input id="bid-value" type="number" min="0" placeholder="Bid value" />
+        <button id="place-bid">Place bid</button>
+        <button id="pass-auction" class="warn">Pass auction</button>
+        <button id="leave-jail" class="secondary">Pay 50 to leave jail</button>
+        <button id="end-turn">End turn</button>
+      </div>
+
+      <div class="stack">
+        <h3>Session</h3>
+        <div id="session" class="meta">No active session</div>
+      </div>
+
+      <div class="stack">
+        <h3>Log</h3>
+        <pre id="log"></pre>
+      </div>
+    </section>
+
+    <section class="panel stack">
+      <div>
+        <h2>Players</h2>
+        <div id="players" class="players"></div>
+      </div>
+
+      <div>
+        <h2>Board</h2>
+        <div id="board" class="board"></div>
+      </div>
+
+      <div>
+        <h2>State</h2>
+        <pre id="state"></pre>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const sessionNode = document.getElementById("session");
+    const logNode = document.getElementById("log");
+    const stateNode = document.getElementById("state");
+    const boardNode = document.getElementById("board");
+    const playersNode = document.getElementById("players");
+    const gameIdInput = document.getElementById("game-id");
+    const playerNameInput = document.getElementById("player-name");
+    const bidValueInput = document.getElementById("bid-value");
+
+    let ws = null;
+    let state = null;
+    let playerId = null;
+    let gameId = null;
+
+    const log = (message) => {
+      const timestamp = new Date().toLocaleTimeString();
+      logNode.textContent = `[${timestamp}] ${message}\n` + logNode.textContent;
+    };
+
+    const api = async (url, options = {}) => {
+      const response = await fetch(url, {
+        headers: { "Content-Type": "application/json" },
+        ...options
+      });
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || response.statusText);
+      }
+      return response.json();
+    };
+
+    const connectWs = () => {
+      if (!gameId || !playerId) return;
+      if (ws) ws.close();
+
+      const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+      ws = new WebSocket(`${protocol}://${window.location.host}/api/ws/games/${gameId}?player_id=${playerId}`);
+
+      ws.onopen = () => log("WebSocket connected");
+      ws.onmessage = (event) => {
+        const message = JSON.parse(event.data);
+        if (message.type === "error") {
+          log(`Error: ${message.payload.message}`);
+          return;
+        }
+        if (message.payload?.card?.title) {
+          log(`Event card: ${message.payload.card.title}`);
+        }
+        if (message.payload?.message) {
+          log(message.payload.message);
+        }
+        if (message.state) {
+          state = message.state;
+          renderState();
+        }
+        if (message.type === "dice_result" && message.payload?.dice) {
+          const dice = message.payload.dice;
+          log(`Dice: ${dice.first} + ${dice.second} = ${dice.total}`);
+        }
+      };
+      ws.onclose = () => log("WebSocket disconnected");
+    };
+
+    const renderState = () => {
+      if (!state) return;
+      stateNode.textContent = JSON.stringify(state, null, 2);
+      sessionNode.textContent = `game=${state.id} player=${playerId || "-" } phase=${state.phase} round=${state.round}`;
+      renderPlayers();
+      renderBoard();
+      if (state.last_event) {
+        log(`State: ${state.last_event}`);
+      }
+    };
+
+    const renderPlayers = () => {
+      playersNode.innerHTML = "";
+      const currentPlayerId = state.players[state.current_turn]?.id;
+      state.players.forEach((player) => {
+        const card = document.createElement("div");
+        card.className = `player-card ${player.id === currentPlayerId ? "current" : ""}`;
+        card.innerHTML = `
+          <strong>${player.name}</strong>
+          <div class="meta">Money: ${player.money} | Pos: ${player.position} | Refusals: ${player.refusals_used}/4</div>
+          <div class="meta">Jail: ${player.in_jail ? `yes (${player.jail_turns})` : "no"} | Connected: ${player.is_connected}</div>
+          <div>${player.properties.map((id) => `<span class="pill">#${id}</span>`).join("") || "<span class='meta'>No assets</span>"}</div>
+        `;
+        playersNode.appendChild(card);
+      });
+    };
+
+    const renderBoard = () => {
+      boardNode.innerHTML = "";
+      state.board.forEach((tile) => {
+        const owners = state.players.filter((player) => player.position === tile.id).map((player) => player.name);
+        const tileNode = document.createElement("div");
+        tileNode.className = `tile ${owners.length ? "active" : ""}`;
+        tileNode.innerHTML = `
+          <strong>#${tile.id} ${tile.name}</strong>
+          <small>${tile.type}</small>
+          <small>Price: ${tile.price} | Rent: ${tile.base_rent}</small>
+          <small>Owner: ${tile.owner_id || "-"}</small>
+          <small>Players: ${owners.join(", ") || "-"}</small>
+        `;
+        boardNode.appendChild(tileNode);
+      });
+    };
+
+    const sendAction = (action, payload = {}) => {
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        log("WebSocket is not connected");
+        return;
+      }
+      ws.send(JSON.stringify({ action, payload }));
+    };
+
+    document.getElementById("create-game").onclick = async () => {
+      const data = await api("/api/games", {
+        method: "POST",
+        body: JSON.stringify({ max_players: 4 })
+      });
+      gameId = data.game_id;
+      gameIdInput.value = gameId;
+      log(`Created game ${gameId}`);
+    };
+
+    document.getElementById("join-game").onclick = async () => {
+      gameId = gameIdInput.value.trim();
+      if (!gameId) return;
+      const data = await api(`/api/games/${gameId}/players`, {
+        method: "POST",
+        body: JSON.stringify({ name: playerNameInput.value.trim() || "Player" })
+      });
+      playerId = data.player.id;
+      state = data.state;
+      renderState();
+      connectWs();
+      log(`Joined game as ${data.player.name}`);
+    };
+
+    document.getElementById("start-game").onclick = async () => {
+      gameId = gameIdInput.value.trim();
+      await api(`/api/games/${gameId}/start`, { method: "POST" });
+      log("Game started");
+    };
+
+    document.getElementById("roll-dice").onclick = () => sendAction("roll_dice");
+    document.getElementById("buy-property").onclick = () => sendAction("buy_property");
+    document.getElementById("decline-property").onclick = () => sendAction("decline_property");
+    document.getElementById("start-auction").onclick = () => sendAction("start_auction");
+    document.getElementById("leave-jail").onclick = () => sendAction("leave_jail");
+    document.getElementById("end-turn").onclick = () => sendAction("end_turn");
+    document.getElementById("place-bid").onclick = () => sendAction("place_bid", { bid: Number(bidValueInput.value || 0) });
+    document.getElementById("pass-auction").onclick = () => sendAction("pass_auction");
+  </script>
+</body>
+</html>
+
