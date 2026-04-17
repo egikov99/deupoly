@@ -72,6 +72,8 @@ Open [http://localhost](http://localhost).
 docker network create proxy
 ```
 
+For Portainer or any host that already has a reverse proxy on ports `80/443`, do not publish the stack's own `nginx` to the host. In this setup `nginx` is reachable only inside Docker networks (`app` + external `proxy`), and the existing reverse proxy should route traffic to it over the `proxy` network.
+
 ### Make targets
 
 ```bash

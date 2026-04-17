@@ -69,8 +69,8 @@ services:
     depends_on:
       backend:
         condition: service_healthy
-    ports:
-      - "80:80"
+    expose:
+      - "80"
     networks:
       - app
       - proxy
