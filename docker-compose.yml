@@ -72,8 +72,10 @@ services:
     expose:
       - "80"
     networks:
-      - app
-      - proxy
+      app:
+      proxy:
+        aliases:
+          - deupoly-nginx
 
 volumes:
   postgres_data:
