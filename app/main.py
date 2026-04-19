@@ -8,7 +8,8 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api.routes import get_router
 from app.config import get_settings
-from app.core.exceptions import GameError, GameNotFoundError
+from app.core.exceptions import AuthenticationError, AuthorizationError, ConflictError, GameError, GameNotFoundError
+from app.services.auth_service import AuthService
 from app.services.game_manager import GameManager
 from app.storage.game_storage import GameStorage
 from app.storage.postgres_repository import PostgresGameRepository
@@ -26,6 +27,8 @@ async def lifespan(app: FastAPI):
     )
     await storage.initialize()
     app.state.game_manager = GameManager(storage=storage)
+    app.state.auth_service = AuthService(storage=storage, session_ttl_days=settings.session_ttl_days)
+    await app.state.auth_service.ensure_admin(settings.admin_username, settings.admin_password)
     try:
         yield
     finally:
@@ -49,6 +52,18 @@ def create_app() -> FastAPI:
     @app.exception_handler(GameNotFoundError)
     async def game_not_found_handler(_, exc: GameNotFoundError) -> JSONResponse:
         return JSONResponse(status_code=404, content={"detail": str(exc)})
+
+    @app.exception_handler(AuthenticationError)
+    async def authentication_error_handler(_, exc: AuthenticationError) -> JSONResponse:
+        return JSONResponse(status_code=401, content={"detail": str(exc)})
+
+    @app.exception_handler(AuthorizationError)
+    async def authorization_error_handler(_, exc: AuthorizationError) -> JSONResponse:
+        return JSONResponse(status_code=403, content={"detail": str(exc)})
+
+    @app.exception_handler(ConflictError)
+    async def conflict_error_handler(_, exc: ConflictError) -> JSONResponse:
+        return JSONResponse(status_code=409, content={"detail": str(exc)})
 
     @app.exception_handler(GameError)
     async def game_error_handler(_, exc: GameError) -> JSONResponse:

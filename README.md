@@ -66,6 +66,13 @@ docker compose up --build
 
 Open [http://localhost](http://localhost).
 
+Bootstrap admin credentials are configured through backend environment variables:
+
+- `ADMIN_USERNAME`
+- `ADMIN_PASSWORD`
+
+In the provided `docker-compose.yml` they are set to a placeholder pair and should be changed before production deploy.
+
 `nginx` is also attached to the external Docker network `proxy`, so this network must already exist on the host:
 
 ```bash
@@ -107,14 +114,22 @@ PYTHONDONTWRITEBYTECODE=1 pytest
 ### HTTP
 
 - `GET /api/health`
+- `POST /api/auth/register`
+- `POST /api/auth/login`
+- `POST /api/auth/logout`
+- `GET /api/auth/me`
+- `GET /api/games`
 - `POST /api/games`
 - `GET /api/games/{game_id}`
 - `POST /api/games/{game_id}/players`
 - `POST /api/games/{game_id}/start`
+- `DELETE /api/games/{game_id}` (admin)
+- `GET /api/admin/users` (admin)
+- `POST /api/admin/users` (admin)
 
 ### WebSocket
 
-- `WS /api/ws/games/{game_id}?player_id=<player_id>`
+- `WS /api/ws/games/{game_id}` with auth session cookie
 
 Client commands:
 
@@ -140,6 +155,8 @@ Server events:
 
 - The server is authoritative: the client only sends intents, never resolves game rules locally.
 - Runtime state is cached in Redis and snapshotted into PostgreSQL after every mutating action.
+- Users have persistent accounts, session cookies, visible table list, and rating counters: total games, active paused games, wins, losses.
+- Finished games are automatically removed once the last connected player leaves the table; final results remain in rating history.
 - WebSocket connections still live in-process, so horizontal scaling would require a shared pub/sub layer for fan-out.
 - GitHub Actions runs tests on `main` and `dev`; a successful `main` push is then synchronized automatically into `dev`.
 - nginx config is baked into its own image, which avoids Portainer bind-mount issues with single config files.

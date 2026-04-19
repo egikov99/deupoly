@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import Optional
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -9,6 +10,10 @@ class Settings(BaseSettings):
     debug: bool = False
     host: str = "0.0.0.0"
     port: int = 8000
+    session_cookie_name: str = "deupoly_session"
+    session_ttl_days: int = 30
+    admin_username: Optional[str] = None
+    admin_password: Optional[str] = None
     redis_url: str = "redis://redis:6379/0"
     database_url: str = "postgresql://deupoly:deupoly@postgres:5432/deupoly"
     cors_origins: list[str] = ["*"]
@@ -23,4 +28,3 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
-

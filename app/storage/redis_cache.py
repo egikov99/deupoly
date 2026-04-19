@@ -27,6 +27,9 @@ class RedisGameCache:
             return None
         return json.loads(raw_state)
 
+    async def delete_state(self, game_id: str) -> None:
+        await self._redis.delete(self._key(game_id))
+
     @staticmethod
     def _key(game_id: str) -> str:
         return f"game:{game_id}:state"

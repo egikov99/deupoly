@@ -39,6 +39,10 @@
       align-items: start;
     }
 
+    .layout.game-mode {
+      grid-template-columns: 1fr;
+    }
+
     .panel {
       background: var(--panel);
       border: 1px solid var(--line);
@@ -173,11 +177,124 @@
       margin-bottom: 10px;
     }
 
+    .brand-card {
+      display: grid;
+      gap: 8px;
+    }
+
+    .brand-footer {
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 14px 16px;
+      background: rgba(255, 255, 255, 0.72);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px 16px;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .brand-footer strong {
+      font-family: "Space Grotesk", "IBM Plex Sans", sans-serif;
+      font-size: 22px;
+      line-height: 1;
+    }
+
     .lobby-status {
       border: 1px solid var(--line);
       border-radius: 16px;
       padding: 14px;
       background: rgba(255, 255, 255, 0.82);
+    }
+
+    .auth-card,
+    .games-card {
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 14px;
+      background: rgba(255, 255, 255, 0.82);
+    }
+
+    .games-list {
+      display: grid;
+      gap: 10px;
+      max-height: 420px;
+      overflow: auto;
+    }
+
+    .game-card {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 12px;
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(255, 248, 232, 0.86));
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .stats-item {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 10px;
+      background: rgba(255, 255, 255, 0.88);
+    }
+
+    .stats-item .meta {
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    .users-list {
+      display: grid;
+      gap: 8px;
+      max-height: 260px;
+      overflow: auto;
+    }
+
+    .user-row {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 10px 12px;
+      background: rgba(255, 255, 255, 0.88);
+    }
+
+    .game-card.current {
+      border-color: var(--accent);
+      box-shadow: inset 0 0 0 2px rgba(187, 62, 3, 0.12);
+    }
+
+    .game-card-header {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .game-card-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .game-card-actions button {
+      width: auto;
+      min-width: 132px;
+      flex: 0 1 auto;
+    }
+
+    .empty-state {
+      border: 1px dashed var(--line);
+      border-radius: 14px;
+      padding: 14px;
+      text-align: center;
+      font-size: 14px;
+      color: rgba(28, 29, 33, 0.72);
+      background: rgba(255, 255, 255, 0.62);
     }
 
     .lobby-status strong {
@@ -489,19 +606,73 @@
 </head>
 <body>
   <div class="layout">
-    <section class="panel stack">
-      <div>
+    <section id="sidebar-panel" class="panel stack">
+      <div class="brand-card">
         <h1>Deupoly</h1>
         <div class="meta">Авторитарный сервер FastAPI + WebSocket</div>
       </div>
 
-      <div id="lobby-controls" class="stack">
+      <div id="auth-panel" class="auth-card stack">
+        <h2>Вход</h2>
+        <input id="auth-username" placeholder="Логин" autocomplete="username" />
+        <input id="auth-password" type="password" placeholder="Пароль" autocomplete="current-password" />
+        <div class="inline-stack">
+          <button id="login-button">Войти</button>
+          <button id="register-button" class="secondary">Регистрация</button>
+        </div>
+        <div id="auth-hint" class="hint hidden"></div>
+      </div>
+
+      <div id="account-panel" class="auth-card stack hidden">
+        <div>
+          <strong id="account-name">-</strong>
+          <div class="meta">Ваша сессия сохранится после обновления страницы.</div>
+        </div>
+        <div id="account-stats" class="stats-grid">
+          <div class="stats-item">
+            <span class="meta">Сыграно</span>
+            <strong id="stat-games-played">0</strong>
+          </div>
+          <div class="stats-item">
+            <span class="meta">На паузе</span>
+            <strong id="stat-current-games">0</strong>
+          </div>
+          <div class="stats-item">
+            <span class="meta">Победы</span>
+            <strong id="stat-wins">0</strong>
+          </div>
+          <div class="stats-item">
+            <span class="meta">Поражения</span>
+            <strong id="stat-losses">0</strong>
+          </div>
+        </div>
+        <button id="logout-button" class="secondary">Выйти</button>
+      </div>
+
+      <div id="games-panel" class="games-card stack hidden">
+        <div class="inline-stack">
+          <strong>Столы</strong>
+          <button id="refresh-games" class="secondary">Обновить</button>
+        </div>
+        <div id="games-list" class="games-list"></div>
+      </div>
+
+      <div id="admin-panel" class="games-card stack hidden">
+        <strong>Админ</strong>
+        <input id="admin-user-username" placeholder="Логин пользователя" />
+        <input id="admin-user-password" type="password" placeholder="Пароль пользователя" />
+        <button id="admin-create-user">Добавить пользователя</button>
+        <div id="admin-hint" class="hint hidden"></div>
+        <div id="admin-users-list" class="users-list"></div>
+      </div>
+
+      <div id="lobby-controls" class="stack hidden">
         <div id="identity-row" class="inline-stack">
-          <input id="player-name" placeholder="Имя игрока" value="Игрок 1" />
+          <input id="player-name" placeholder="Имя игрока" />
           <input id="game-id" placeholder="ID игры" />
         </div>
         <div id="lobby-buttons-row" class="inline-stack">
-          <button id="create-game">Создать игру</button>
+          <button id="create-game">Создать стол</button>
           <button id="join-game" class="secondary">Войти в игру</button>
           <button id="start-game">Начать игру</button>
         </div>
@@ -578,10 +749,36 @@
           <pre id="log"></pre>
         </div>
       </div>
+
+      <div id="brand-footer" class="brand-footer hidden">
+        <strong>Deupoly</strong>
+        <span class="meta">Авторитарный сервер FastAPI + WebSocket</span>
+        <button id="back-to-tables" class="secondary">К столам</button>
+      </div>
     </section>
   </div>
 
   <script>
+    const layoutNode = document.querySelector(".layout");
+    const sidebarPanelNode = document.getElementById("sidebar-panel");
+    const brandFooterNode = document.getElementById("brand-footer");
+    const authPanelNode = document.getElementById("auth-panel");
+    const accountPanelNode = document.getElementById("account-panel");
+    const gamesPanelNode = document.getElementById("games-panel");
+    const adminPanelNode = document.getElementById("admin-panel");
+    const gamesListNode = document.getElementById("games-list");
+    const accountNameNode = document.getElementById("account-name");
+    const statGamesPlayedNode = document.getElementById("stat-games-played");
+    const statCurrentGamesNode = document.getElementById("stat-current-games");
+    const statWinsNode = document.getElementById("stat-wins");
+    const statLossesNode = document.getElementById("stat-losses");
+    const authUsernameInput = document.getElementById("auth-username");
+    const authPasswordInput = document.getElementById("auth-password");
+    const authHintNode = document.getElementById("auth-hint");
+    const adminUserUsernameInput = document.getElementById("admin-user-username");
+    const adminUserPasswordInput = document.getElementById("admin-user-password");
+    const adminHintNode = document.getElementById("admin-hint");
+    const adminUsersListNode = document.getElementById("admin-users-list");
     const sessionNode = document.getElementById("session");
     const logNode = document.getElementById("log");
     const boardNode = document.getElementById("board");
@@ -609,6 +806,7 @@
     const logSectionNode = document.getElementById("log-section");
     const gameSectionNode = document.getElementById("game-section");
     const startGameButton = document.getElementById("start-game");
+    const backToTablesButton = document.getElementById("back-to-tables");
     const actionButtons = {
       roll_dice: document.getElementById("roll-dice"),
       buy_property: document.getElementById("buy-property"),
@@ -621,6 +819,9 @@
     };
 
     let ws = null;
+    let currentUser = null;
+    let games = [];
+    let users = [];
     let state = null;
     let playerId = null;
     let gameId = null;
@@ -665,6 +866,7 @@
       [11, 1],
       [10, 1], [9, 1], [8, 1], [7, 1], [6, 1], [5, 1], [4, 1], [3, 1], [2, 1]
     ];
+    const lastGameStorageKey = "deupoly:lastGameId";
 
     const log = (message) => {
       const timestamp = new Date().toLocaleTimeString();
@@ -728,6 +930,30 @@
       node.classList.toggle("hidden", hidden);
     };
 
+    const saveLastGameId = (value) => {
+      if (value) {
+        window.localStorage.setItem(lastGameStorageKey, value);
+        return;
+      }
+      window.localStorage.removeItem(lastGameStorageKey);
+    };
+
+    const getLastGameId = () => window.localStorage.getItem(lastGameStorageKey);
+
+    const resetLocalGameState = () => {
+      state = null;
+      playerId = null;
+      gameId = null;
+      displayPositions = {};
+      pendingDiceAnimation = null;
+      isAnimatingMovement = false;
+      movingPlayerId = null;
+      diceFaces = [1, 1];
+      renderControls();
+      playersNode.innerHTML = "";
+      boardNode.innerHTML = "";
+    };
+
     const getCurrentPlayer = () => state?.players?.[state.current_turn] || null;
     const getLocalPlayer = () => state?.players?.find((player) => player.id === playerId) || null;
     const getPositionsMap = (players) => Object.fromEntries(players.map((player) => [player.id, player.position]));
@@ -738,6 +964,44 @@
     const getPendingTile = () => {
       if (!state || state.pending_tile_id === null || state.pending_tile_id === undefined) return null;
       return state.board.find((tile) => tile.id === state.pending_tile_id) || null;
+    };
+
+    const showAuthHint = (message) => {
+      authHintNode.textContent = message;
+      setHidden(authHintNode, !message);
+    };
+
+    const showAdminHint = (message) => {
+      adminHintNode.textContent = message;
+      setHidden(adminHintNode, !message);
+    };
+
+    const renderAccountStats = () => {
+      const stats = currentUser?.stats || {};
+      statGamesPlayedNode.textContent = String(stats.games_played || 0);
+      statCurrentGamesNode.textContent = String(stats.current_games || 0);
+      statWinsNode.textContent = String(stats.wins || 0);
+      statLossesNode.textContent = String(stats.losses || 0);
+    };
+
+    const renderAdminUsers = () => {
+      if (!currentUser?.is_admin) {
+        adminUsersListNode.innerHTML = "";
+        return;
+      }
+
+      if (!users.length) {
+        adminUsersListNode.innerHTML = `<div class="empty-state">Пользователей пока нет.</div>`;
+        return;
+      }
+
+      adminUsersListNode.innerHTML = users.map((user) => `
+        <div class="user-row">
+          <strong>${user.username}${user.is_admin ? " • админ" : ""}</strong>
+          <div class="meta">Сыграно: ${user.stats.games_played} | На паузе: ${user.stats.current_games}</div>
+          <div class="meta">Победы: ${user.stats.wins} | Поражения: ${user.stats.losses}</div>
+        </div>
+      `).join("");
     };
 
     const getAvailableActions = () => {
@@ -785,8 +1049,48 @@
       return available;
     };
 
+    const renderGamesList = () => {
+      if (!currentUser) {
+        gamesListNode.innerHTML = "";
+        return;
+      }
+
+      if (!games.length) {
+        gamesListNode.innerHTML = `<div class="empty-state">Пока нет доступных столов. Создайте первый.</div>`;
+        return;
+      }
+
+      gamesListNode.innerHTML = games
+        .map((game) => {
+          const isCurrent = game.game_id === gameId;
+          const actionLabel = game.joined ? "Открыть стол" : "Присоединиться";
+          const canAct = game.joined || game.can_join;
+          return `
+            <div class="game-card ${isCurrent ? "current" : ""}">
+              <div class="game-card-header">
+                <strong>${game.player_count}/${game.max_players} • ${phaseLabels[game.phase] || game.phase}</strong>
+                <span class="meta">Раунд ${game.round}</span>
+              </div>
+              <div class="meta">ID: ${game.game_id}</div>
+              <div class="meta">Игроки: ${game.players.join(", ") || "-"}</div>
+              <div class="meta">${game.joined ? `Вы в игре как ${game.player_name}` : "Вы ещё не присоединились"}</div>
+              <div class="game-card-actions">
+                <button class="${game.joined ? "" : "secondary"}" data-game-action="open" data-game-id="${game.game_id}" ${canAct ? "" : "disabled"}>
+                  ${actionLabel}
+                </button>
+                ${currentUser?.is_admin ? `<button class="warn" data-game-action="delete" data-game-id="${game.game_id}">Удалить стол</button>` : ""}
+              </div>
+            </div>
+          `;
+        })
+        .join("");
+    };
+
     const renderControls = () => {
-      const inLobby = !state || state.phase === "waiting_for_players";
+      const isAuthenticated = Boolean(currentUser);
+      const hasState = Boolean(state);
+      const inLobby = !hasState || state.phase === "waiting_for_players";
+      const inStartedGame = hasState && state.phase !== "waiting_for_players";
       const availableActions = new Set(getAvailableActions());
       const localPlayer = getLocalPlayer();
       const isJoined = Boolean(playerId && localPlayer);
@@ -798,18 +1102,25 @@
         playersCount >= 2
       );
 
-      setHidden(lobbyControlsNode, !inLobby);
-      setHidden(lobbyStatusNode, !inLobby || !state);
+      setHidden(authPanelNode, isAuthenticated);
+      setHidden(accountPanelNode, !isAuthenticated || inStartedGame);
+      setHidden(gamesPanelNode, !isAuthenticated || inStartedGame);
+      setHidden(adminPanelNode, !isAuthenticated || inStartedGame || !currentUser?.is_admin);
+      setHidden(lobbyControlsNode, !isAuthenticated || !inLobby);
+      setHidden(lobbyStatusNode, !isAuthenticated || !state || !inLobby);
       setHidden(identityRowNode, isJoined);
       setHidden(lobbyButtonsRowNode, false);
       setHidden(actionsSectionNode, inLobby);
-      setHidden(gameSectionNode, inLobby);
-      setHidden(serviceBarNode, inLobby);
-      setHidden(sessionSectionNode, inLobby);
-      setHidden(logSectionNode, inLobby);
+      setHidden(gameSectionNode, !inStartedGame);
+      setHidden(serviceBarNode, !inStartedGame);
+      setHidden(sessionSectionNode, !inStartedGame);
+      setHidden(logSectionNode, !inStartedGame);
+      setHidden(sidebarPanelNode, inStartedGame);
+      setHidden(brandFooterNode, !inStartedGame);
+      layoutNode.classList.toggle("game-mode", inStartedGame);
 
       startGameButton.disabled = !canStartGame;
-      setHidden(startGameButton, !isJoined);
+      setHidden(startGameButton, !state || !isJoined);
       setHidden(document.getElementById("create-game"), isJoined);
       setHidden(document.getElementById("join-game"), isJoined);
 
@@ -822,6 +1133,9 @@
       const showBidInput = availableActions.has("place_bid");
       setHidden(bidValueInput, !showBidInput);
       bidValueInput.disabled = !showBidInput;
+
+      renderAccountStats();
+      renderAdminUsers();
     };
 
     const renderLobbyStatus = () => {
@@ -855,7 +1169,7 @@
 
     const showLobbyHint = (message) => {
       lobbyStartHintNode.textContent = message;
-      setHidden(lobbyStartHintNode, false);
+      setHidden(lobbyStartHintNode, !message);
     };
 
     const renderStatusBar = () => {
@@ -910,22 +1224,37 @@
 
     const api = async (url, options = {}) => {
       const response = await fetch(url, {
+        credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
         ...options
       });
       if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text || "Ошибка запроса");
+        let message = "Ошибка запроса";
+        try {
+          const errorBody = await response.json();
+          message = errorBody.detail || errorBody.message || message;
+        } catch (_) {
+          const text = await response.text();
+          message = text || message;
+        }
+        throw new Error(message);
       }
       return response.json();
     };
 
+    const disconnectWs = () => {
+      if (ws) {
+        ws.close();
+        ws = null;
+      }
+    };
+
     const connectWs = () => {
-      if (!gameId || !playerId) return;
-      if (ws) ws.close();
+      if (!gameId || !playerId || !currentUser) return;
+      disconnectWs();
 
       const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-      ws = new WebSocket(`${protocol}://${window.location.host}/api/ws/games/${gameId}?player_id=${playerId}`);
+      ws = new WebSocket(`${protocol}://${window.location.host}/api/ws/games/${gameId}`);
 
       ws.onopen = () => log("WebSocket подключён");
       ws.onmessage = (event) => {
@@ -977,7 +1306,107 @@
           }
         }
       };
-      ws.onclose = () => log("WebSocket отключён");
+      ws.onclose = () => {
+        log("WebSocket отключён");
+        ws = null;
+      };
+    };
+
+    const loadGames = async () => {
+      if (!currentUser) {
+        games = [];
+        renderGamesList();
+        return [];
+      }
+      games = await api("/api/games");
+      renderGamesList();
+      return games;
+    };
+
+    const refreshCurrentUser = async () => {
+      if (!currentUser) return null;
+      const data = await api("/api/auth/me");
+      currentUser = data.user;
+      accountNameNode.textContent = currentUser.username;
+      playerNameInput.value = currentUser.username;
+      renderAccountStats();
+      return currentUser;
+    };
+
+    const loadUsers = async () => {
+      if (!currentUser?.is_admin) {
+        users = [];
+        renderAdminUsers();
+        return [];
+      }
+      users = await api("/api/admin/users");
+      renderAdminUsers();
+      return users;
+    };
+
+    const openGame = async (gameIdValue, shouldConnect = true) => {
+      if (!currentUser) return;
+      const summary = games.find((game) => game.game_id === gameIdValue) || null;
+      gameId = gameIdValue;
+      playerId = summary?.player_id || null;
+      saveLastGameId(gameIdValue);
+      const data = await api(`/api/games/${gameIdValue}`);
+      state = data.state;
+      syncDisplayPositions(state.players);
+      renderState();
+      if (playerId && shouldConnect) {
+        connectWs();
+      }
+    };
+
+    const maybeRestoreGame = async () => {
+      const joinedGames = games.filter((game) => game.joined);
+      if (!joinedGames.length) {
+        return;
+      }
+
+      const lastGameId = getLastGameId();
+      const preferredGame =
+        joinedGames.find((game) => game.game_id === lastGameId) ||
+        joinedGames.find((game) => game.phase !== "finished") ||
+        joinedGames[0];
+
+      if (preferredGame) {
+        await openGame(preferredGame.game_id, true);
+      }
+    };
+
+    const resetSession = () => {
+      disconnectWs();
+      currentUser = null;
+      games = [];
+      users = [];
+      saveLastGameId(null);
+      resetLocalGameState();
+      accountNameNode.textContent = "-";
+      renderGamesList();
+      renderAccountStats();
+      renderAdminUsers();
+      showAuthHint("");
+      showAdminHint("");
+      showLobbyHint("");
+    };
+
+    const bootstrap = async () => {
+      try {
+        const data = await api("/api/auth/me");
+        currentUser = data.user;
+        accountNameNode.textContent = currentUser.username;
+        playerNameInput.value = currentUser.username;
+        showAuthHint("");
+        await loadGames();
+        await loadUsers();
+        await maybeRestoreGame();
+      } catch (_) {
+        resetSession();
+      } finally {
+        renderControls();
+      }
     };
 
     const renderState = () => {
@@ -985,8 +1414,11 @@
       if (!Object.keys(displayPositions).length) {
         syncDisplayPositions(state.players);
       }
+      accountNameNode.textContent = currentUser?.username || "-";
+      gameIdInput.value = state.id;
       sessionNode.textContent = `игра=${state.id} игрок=${playerId || "-"} фаза=${phaseLabels[state.phase] || state.phase} раунд=${state.round}`;
       renderControls();
+      renderGamesList();
       renderLobbyStatus();
       renderStatusBar();
       renderPlayers();
@@ -1067,18 +1499,170 @@
       ws.send(JSON.stringify({ action, payload }));
     };
 
+    document.getElementById("login-button").onclick = async () => {
+      try {
+        const data = await api("/api/auth/login", {
+          method: "POST",
+          body: JSON.stringify({
+            username: authUsernameInput.value.trim(),
+            password: authPasswordInput.value
+          })
+        });
+        currentUser = data.user;
+        accountNameNode.textContent = currentUser.username;
+        playerNameInput.value = currentUser.username;
+        authPasswordInput.value = "";
+        showAuthHint("");
+        await loadGames();
+        await loadUsers();
+        await maybeRestoreGame();
+        renderControls();
+      } catch (error) {
+        showAuthHint(`Ошибка входа: ${error.message}`);
+      }
+    };
+
+    document.getElementById("register-button").onclick = async () => {
+      try {
+        const data = await api("/api/auth/register", {
+          method: "POST",
+          body: JSON.stringify({
+            username: authUsernameInput.value.trim(),
+            password: authPasswordInput.value
+          })
+        });
+        currentUser = data.user;
+        accountNameNode.textContent = currentUser.username;
+        playerNameInput.value = currentUser.username;
+        authPasswordInput.value = "";
+        showAuthHint("");
+        await loadGames();
+        await loadUsers();
+        renderControls();
+      } catch (error) {
+        showAuthHint(`Ошибка регистрации: ${error.message}`);
+      }
+    };
+
+    document.getElementById("logout-button").onclick = async () => {
+      try {
+        await api("/api/auth/logout", { method: "POST" });
+      } catch (_) {
+        // no-op
+      } finally {
+        resetSession();
+      }
+    };
+
+    document.getElementById("refresh-games").onclick = async () => {
+      try {
+        await refreshCurrentUser();
+        await loadGames();
+        await loadUsers();
+        renderControls();
+      } catch (error) {
+        showLobbyHint(`Ошибка обновления столов: ${error.message}`);
+      }
+    };
+
+    gamesListNode.onclick = async (event) => {
+      const button = event.target.closest("[data-game-action]");
+      if (!button) return;
+      const action = button.dataset.gameAction;
+      const selectedGameId = button.dataset.gameId;
+      if (!selectedGameId) return;
+
+      try {
+        if (action === "delete") {
+          await api(`/api/games/${selectedGameId}`, { method: "DELETE" });
+          if (gameId === selectedGameId) {
+            disconnectWs();
+            resetLocalGameState();
+            saveLastGameId(null);
+          }
+          await refreshCurrentUser();
+          await loadGames();
+          await loadUsers();
+          renderControls();
+          log(`Стол ${selectedGameId} удалён администратором`);
+          return;
+        }
+
+        const summary = games.find((game) => game.game_id === selectedGameId);
+        if (summary && !summary.joined) {
+          const data = await api(`/api/games/${selectedGameId}/players`, {
+            method: "POST",
+            body: JSON.stringify({ name: playerNameInput.value.trim() || currentUser.username })
+          });
+          playerId = data.player.id;
+          gameId = selectedGameId;
+          state = data.state;
+          saveLastGameId(gameId);
+          syncDisplayPositions(state.players);
+          await refreshCurrentUser();
+          await loadGames();
+          await loadUsers();
+          renderState();
+          connectWs();
+          log(`Подключение к игре как ${data.player.name}`);
+          return;
+        }
+
+        await openGame(selectedGameId, true);
+      } catch (error) {
+        showLobbyHint(`Ошибка открытия стола: ${error.message}`);
+      }
+    };
+
+    document.getElementById("admin-create-user").onclick = async () => {
+      try {
+        const data = await api("/api/admin/users", {
+          method: "POST",
+          body: JSON.stringify({
+            username: adminUserUsernameInput.value.trim(),
+            password: adminUserPasswordInput.value,
+            is_admin: false
+          })
+        });
+        adminUserUsernameInput.value = "";
+        adminUserPasswordInput.value = "";
+        showAdminHint(`Создан пользователь ${data.user.username}`);
+        await loadUsers();
+      } catch (error) {
+        showAdminHint(`Ошибка создания пользователя: ${error.message}`);
+      }
+    };
+
+    backToTablesButton.onclick = async () => {
+      disconnectWs();
+      saveLastGameId(null);
+      resetLocalGameState();
+      await refreshCurrentUser();
+      await loadGames();
+      await loadUsers();
+      renderControls();
+    };
+
     document.getElementById("create-game").onclick = async () => {
       try {
         const data = await api("/api/games", {
           method: "POST",
-          body: JSON.stringify({ max_players: 4 })
+          body: JSON.stringify({
+            max_players: 4,
+            player_name: playerNameInput.value.trim() || currentUser.username
+          })
         });
         gameId = data.game_id;
+        playerId = data.player.id;
         state = data.state;
+        saveLastGameId(gameId);
         syncDisplayPositions(state.players);
-        gameIdInput.value = gameId;
+        await refreshCurrentUser();
+        await loadGames();
+        await loadUsers();
         renderState();
         log(`Создана игра ${gameId}`);
+        connectWs();
       } catch (error) {
         showLobbyHint(`Ошибка создания игры: ${error.message}`);
       }
@@ -1093,11 +1677,15 @@
         }
         const data = await api(`/api/games/${gameId}/players`, {
           method: "POST",
-          body: JSON.stringify({ name: playerNameInput.value.trim() || "Игрок" })
+          body: JSON.stringify({ name: playerNameInput.value.trim() || currentUser.username })
         });
         playerId = data.player.id;
         state = data.state;
+        saveLastGameId(gameId);
         syncDisplayPositions(state.players);
+        await refreshCurrentUser();
+        await loadGames();
+        await loadUsers();
         renderState();
         connectWs();
         log(`Подключение к игре как ${data.player.name}`);
@@ -1114,6 +1702,9 @@
           return;
         }
         await api(`/api/games/${gameId}/start`, { method: "POST" });
+        await refreshCurrentUser();
+        await loadGames();
+        await loadUsers();
         log("Игра началась");
       } catch (error) {
         showLobbyHint(`Ошибка старта игры: ${error.message}`);
@@ -1129,7 +1720,7 @@
     document.getElementById("place-bid").onclick = () => sendAction("place_bid", { bid: Number(bidValueInput.value || 0) });
     document.getElementById("pass-auction").onclick = () => sendAction("pass_auction");
 
-    renderControls();
+    bootstrap();
   </script>
 </body>
 </html>

@@ -9,6 +9,8 @@ services:
     environment:
       REDIS_URL: redis://redis:6379/0
       DATABASE_URL: postgresql://deupoly:deupoly@postgres:5432/deupoly
+      ADMIN_USERNAME: admin
+      ADMIN_PASSWORD: change-me-now
     depends_on:
       redis:
         condition: service_healthy
