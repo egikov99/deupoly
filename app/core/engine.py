@@ -171,6 +171,7 @@ class GameEngine:
     def _resolve_tile(self, player: Player, tile: Tile, passed_start: bool) -> list[ServerEvent]:
         events: list[ServerEvent] = []
         self.game.pending_tile_id = None
+        self.game.pending_tile_optional = False
 
         if tile.type == TileType.START and passed_start:
             self._set_last_event(f"{player.name} остановился на «Старт» и получил 400.")
@@ -232,6 +233,7 @@ class GameEngine:
         player.properties.append(tile.id)
         self._refresh_player_assets()
         self.game.pending_tile_id = None
+        self.game.pending_tile_optional = False
         self.game.phase = GamePhase.WAITING_FOR_ACTION
         self._set_last_event(f"{player.name} купил «{tile.name}» за {tile.price}.")
         return self._finish_action_events([])
@@ -244,15 +246,17 @@ class GameEngine:
             raise InvalidActionError("Лимит отказов исчерпан. Запустите аукцион.")
 
         player.refusals_used += 1
-        self.game.pending_tile_id = None
+        self.game.pending_tile_id = tile.id
+        self.game.pending_tile_optional = True
         self.game.phase = GamePhase.WAITING_FOR_ACTION
-        self._set_last_event(f"{player.name} отказался покупать «{tile.name}».")
+        self._set_last_event(f"{player.name} отказался покупать «{tile.name}», но клетка остаётся доступной.")
         return self._finish_action_events([])
 
     def _start_auction(self) -> list[ServerEvent]:
         tile = self._get_pending_tile()
         participants = [player.id for player in self.active_players if player.id != self.current_player.id]
         self.game.pending_tile_id = None
+        self.game.pending_tile_optional = False
         self.game.auction = Auction(
             tile_id=tile.id,
             initiator_id=self.current_player.id,
@@ -306,7 +310,9 @@ class GameEngine:
 
         if auction.current_winner is None:
             auction.active = False
-            self._set_last_event(f"Аукцион за «{tile.name}» завершился без ставок.")
+            self.game.pending_tile_id = tile.id
+            self.game.pending_tile_optional = True
+            self._set_last_event(f"Аукцион за «{tile.name}» завершился без ставок. Клетка снова доступна для покупки.")
         else:
             winner = self._find_player(auction.current_winner)
             initiator = self._find_player(auction.initiator_id)
@@ -317,6 +323,8 @@ class GameEngine:
                     winner.properties.append(tile.id)
                 bonus = int((auction.current_price - tile.price) * 0.15)
                 initiator.money += max(bonus, 0)
+                self.game.pending_tile_id = None
+                self.game.pending_tile_optional = False
                 self._set_last_event(
                     f"{winner.name} выиграл аукцион за «{tile.name}» со ставкой {auction.current_price}. "
                     f"{initiator.name} получил бонус {max(bonus, 0)}."
@@ -324,8 +332,10 @@ class GameEngine:
             else:
                 penalty = max(int(max(winner.money, 0) * 0.10), 100)
                 winner.money -= penalty
+                self.game.pending_tile_id = tile.id
+                self.game.pending_tile_optional = True
                 self._set_last_event(
-                    f"{winner.name} не смог оплатить «{tile.name}» и получил штраф {penalty}."
+                    f"{winner.name} не смог оплатить «{tile.name}» и получил штраф {penalty}. Клетка снова свободна."
                 )
             auction.active = False
 
@@ -340,6 +350,7 @@ class GameEngine:
             raise InvalidActionError("Сейчас нельзя завершить ход.")
 
         self.game.pending_tile_id = None
+        self.game.pending_tile_optional = False
         self.game.dice = None
         self._advance_turn()
         if self.game.phase == GamePhase.FINISHED:
@@ -510,6 +521,7 @@ class GameEngine:
         player.in_jail = True
         player.jail_turns = 3
         self.game.pending_tile_id = None
+        self.game.pending_tile_optional = False
         self.game.phase = GamePhase.WAITING_FOR_ACTION
 
     def _make_dice(self) -> DiceResult:

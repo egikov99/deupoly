@@ -65,3 +65,44 @@ def test_auction_assigns_tile_to_winner() -> None:
     assert bidder.money == 1500 - 130
     assert initiator.money == 1501
     assert engine.game.auction is None
+
+
+def test_player_can_buy_after_declining_if_tile_stays_free() -> None:
+    engine = GameEngine(game_id="game-decline-rebuy")
+    player = engine.add_player("Alice")
+    engine.add_player("Bob")
+    engine.game.phase = GamePhase.WAITING_FOR_ACTION
+    engine.game.round = 1
+    engine.game.current_turn = 0
+    engine.game.pending_tile_id = 1
+
+    engine.process_action(player.id, ClientAction.DECLINE_PROPERTY)
+
+    assert engine.game.pending_tile_id == 1
+    assert engine.game.pending_tile_optional is True
+
+    engine.process_action(player.id, ClientAction.BUY_PROPERTY)
+
+    assert engine.game.board[1].owner_id == player.id
+    assert engine.game.pending_tile_id is None
+
+
+def test_player_can_buy_after_auction_without_sale() -> None:
+    engine = GameEngine(game_id="game-auction-rebuy")
+    initiator = engine.add_player("Alice")
+    bidder = engine.add_player("Bob")
+    engine.game.phase = GamePhase.WAITING_FOR_ACTION
+    engine.game.round = 1
+    engine.game.current_turn = 0
+    engine.game.pending_tile_id = 1
+
+    engine.process_action(initiator.id, ClientAction.START_AUCTION)
+    engine.process_action(bidder.id, ClientAction.PASS_AUCTION)
+
+    assert engine.game.auction is None
+    assert engine.game.pending_tile_id == 1
+    assert engine.game.pending_tile_optional is True
+
+    engine.process_action(initiator.id, ClientAction.BUY_PROPERTY)
+
+    assert engine.game.board[1].owner_id == initiator.id

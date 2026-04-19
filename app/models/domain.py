@@ -120,5 +120,6 @@ class GameState(BaseModel):
     events_deck: list[EventCard] = Field(default_factory=list)
     auction: Optional[Auction] = None
     pending_tile_id: Optional[int] = None
+    pending_tile_optional: bool = False
     last_event: Optional[str] = None
     max_players: int = 6
