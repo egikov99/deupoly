@@ -36,6 +36,7 @@ class AdminCreateUserRequest(UserCredentialsRequest):
 class CreateGameRequest(BaseModel):
     max_players: int = Field(default=4, ge=2, le=6)
     player_name: Optional[str] = Field(default=None, min_length=1, max_length=32)
+    table_name: Optional[str] = Field(default=None, min_length=1, max_length=64)
 
 
 class JoinGameRequest(BaseModel):
@@ -44,6 +45,7 @@ class JoinGameRequest(BaseModel):
 
 class GameSummary(BaseModel):
     game_id: str
+    name: str
     phase: str
     round: int
     player_count: int

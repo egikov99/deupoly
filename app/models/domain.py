@@ -111,6 +111,7 @@ class Auction(BaseModel):
 
 class GameState(BaseModel):
     id: str
+    name: str = "Новый стол"
     players: list[Player] = Field(default_factory=list)
     board: list[Tile]
     current_turn: int = 0

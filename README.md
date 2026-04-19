@@ -70,6 +70,10 @@ Bootstrap admin credentials are configured through backend environment variables
 
 - `ADMIN_USERNAME`
 - `ADMIN_PASSWORD`
+- `VIDEO_STUN_URLS`
+- `VIDEO_TURN_URL`
+- `VIDEO_TURN_USERNAME`
+- `VIDEO_TURN_PASSWORD`
 
 In the provided `docker-compose.yml` they are set to a placeholder pair and should be changed before production deploy.
 
@@ -118,6 +122,7 @@ PYTHONDONTWRITEBYTECODE=1 pytest
 - `POST /api/auth/login`
 - `POST /api/auth/logout`
 - `GET /api/auth/me`
+- `GET /api/video/config`
 - `GET /api/games`
 - `POST /api/games`
 - `GET /api/games/{game_id}`
@@ -130,6 +135,7 @@ PYTHONDONTWRITEBYTECODE=1 pytest
 ### WebSocket
 
 - `WS /api/ws/games/{game_id}` with auth session cookie
+- `WS /api/ws/video/{game_id}` with auth session cookie
 
 Client commands:
 
@@ -157,6 +163,7 @@ Server events:
 - Runtime state is cached in Redis and snapshotted into PostgreSQL after every mutating action.
 - Users have persistent accounts, session cookies, visible table list, and rating counters: total games, active paused games, wins, losses.
 - Finished games are automatically removed once the last connected player leaves the table; final results remain in rating history.
+- Video chat uses browser WebRTC with FastAPI signalling. For real-world connectivity across home/mobile networks, configure a TURN server through the `VIDEO_TURN_*` environment variables.
 - WebSocket connections still live in-process, so horizontal scaling would require a shared pub/sub layer for fan-out.
 - GitHub Actions runs tests on `main` and `dev`; a successful `main` push is then synchronized automatically into `dev`.
 - nginx config is baked into its own image, which avoids Portainer bind-mount issues with single config files.

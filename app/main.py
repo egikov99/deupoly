@@ -11,6 +11,7 @@ from app.config import get_settings
 from app.core.exceptions import AuthenticationError, AuthorizationError, ConflictError, GameError, GameNotFoundError
 from app.services.auth_service import AuthService
 from app.services.game_manager import GameManager
+from app.services.video_call_manager import VideoCallManager
 from app.storage.game_storage import GameStorage
 from app.storage.postgres_repository import PostgresGameRepository
 from app.storage.redis_cache import RedisGameCache
@@ -28,6 +29,7 @@ async def lifespan(app: FastAPI):
     await storage.initialize()
     app.state.game_manager = GameManager(storage=storage)
     app.state.auth_service = AuthService(storage=storage, session_ttl_days=settings.session_ttl_days)
+    app.state.video_call_manager = VideoCallManager()
     await app.state.auth_service.ensure_admin(settings.admin_username, settings.admin_password)
     try:
         yield

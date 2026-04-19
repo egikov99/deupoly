@@ -23,9 +23,10 @@ from app.models.messages import ClientAction, ServerEvent, ServerEventType
 
 
 class GameEngine:
-    def __init__(self, game_id: str, max_players: int = 4) -> None:
+    def __init__(self, game_id: str, max_players: int = 4, name: str = "Новый стол") -> None:
         self.game = GameState(
             id=game_id,
+            name=name.strip() or "Новый стол",
             board=build_default_board(),
             events_deck=build_event_deck(),
             max_players=max_players,

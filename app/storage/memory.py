@@ -111,6 +111,7 @@ class MemoryGameStorage(AbstractGameStorage):
             summaries.append(
                 {
                     "game_id": game_id,
+                    "name": state.get("name", "Новый стол"),
                     "phase": state["phase"],
                     "round": state["round"],
                     "player_count": len(state["players"]),

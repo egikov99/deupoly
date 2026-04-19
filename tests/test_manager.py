@@ -20,7 +20,7 @@ def test_game_manager_restores_state_from_storage() -> None:
         await storage.initialize()
 
         manager = GameManager(storage=storage)
-        created = await manager.create_game(user_id="user-1", player_name="Alice", max_players=4)
+        created = await manager.create_game(user_id="user-1", player_name="Alice", max_players=4, table_name="Тестовый стол")
         game_id = created["game_id"]
 
         await manager.add_player(game_id, "user-2", "Bob")
@@ -32,6 +32,7 @@ def test_game_manager_restores_state_from_storage() -> None:
         current_player_id = restored_state["players"][restored_state["current_turn"]]["id"]
 
         assert restored_state["id"] == game_id
+        assert restored_state["name"] == "Тестовый стол"
         assert len(restored_state["players"]) == 2
         assert restored_state == state_before_restart
         assert restored_state["players"][0]["is_connected"] is False
@@ -49,6 +50,7 @@ def test_game_manager_restores_state_from_storage() -> None:
         summaries = await restored_manager.list_games("user-1")
         assert summaries[0]["joined"] is True
         assert summaries[0]["player_name"] == "Alice"
+        assert summaries[0]["name"] == "Тестовый стол"
 
         await storage.close()
 
@@ -61,7 +63,7 @@ def test_game_manager_reuses_existing_membership_on_rejoin() -> None:
         await storage.initialize()
 
         manager = GameManager(storage=storage)
-        created = await manager.create_game(user_id="user-1", player_name="Alice", max_players=4)
+        created = await manager.create_game(user_id="user-1", player_name="Alice", max_players=4, table_name="Стол Alice")
         game_id = created["game_id"]
         player_id = created["player"]["id"]
 
@@ -81,7 +83,7 @@ def test_finished_game_updates_stats_and_is_deleted_after_last_disconnect() -> N
         await storage.initialize()
         manager = GameManager(storage=storage)
 
-        created = await manager.create_game(user_id="user-1", player_name="Alice", max_players=4)
+        created = await manager.create_game(user_id="user-1", player_name="Alice", max_players=4, table_name="Финальный стол")
         game_id = created["game_id"]
         player_one_id = created["player"]["id"]
         joined = await manager.add_player(game_id=game_id, user_id="user-2", name="Bob")

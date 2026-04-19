@@ -14,6 +14,10 @@ class Settings(BaseSettings):
     session_ttl_days: int = 30
     admin_username: Optional[str] = None
     admin_password: Optional[str] = None
+    video_stun_urls: list[str] = ["stun:stun.l.google.com:19302"]
+    video_turn_url: Optional[str] = None
+    video_turn_username: Optional[str] = None
+    video_turn_password: Optional[str] = None
     redis_url: str = "redis://redis:6379/0"
     database_url: str = "postgresql://deupoly:deupoly@postgres:5432/deupoly"
     cors_origins: list[str] = ["*"]

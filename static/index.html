@@ -452,6 +452,75 @@
       min-height: 180px;
     }
 
+    .video-panel {
+      display: grid;
+      gap: 10px;
+    }
+
+    .video-controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .video-controls button {
+      width: auto;
+      min-width: 120px;
+      flex: 0 1 auto;
+    }
+
+    .video-status {
+      font-size: 13px;
+      color: rgba(28, 29, 33, 0.76);
+    }
+
+    .video-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .video-tile {
+      position: relative;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      overflow: hidden;
+      min-height: 128px;
+      background: linear-gradient(180deg, rgba(16, 21, 27, 0.95), rgba(36, 59, 83, 0.92));
+    }
+
+    .video-tile video {
+      width: 100%;
+      height: 100%;
+      min-height: 128px;
+      object-fit: cover;
+      display: block;
+      background: #10151b;
+    }
+
+    .video-caption {
+      position: absolute;
+      left: 10px;
+      bottom: 10px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      font-size: 12px;
+      color: white;
+      background: rgba(16, 21, 27, 0.72);
+      backdrop-filter: blur(8px);
+    }
+
+    .video-placeholder {
+      display: grid;
+      place-items: center;
+      min-height: 128px;
+      padding: 12px;
+      text-align: center;
+      color: rgba(255, 255, 255, 0.78);
+      font-size: 13px;
+    }
+
     .center-session {
       display: flex;
       flex-wrap: wrap;
@@ -501,6 +570,13 @@
       font-size: 12px;
     }
 
+    .tile.grouped {
+      border-top: 6px solid var(--group-color, rgba(28, 29, 33, 0.16));
+      background:
+        linear-gradient(180deg, color-mix(in srgb, var(--group-color, #ffffff) 16%, rgba(255, 255, 255, 0.78)), rgba(255, 255, 255, 0.72) 42%),
+        rgba(255, 255, 255, 0.75);
+    }
+
     .tile strong {
       font-size: 12px;
       line-height: 1.2;
@@ -531,6 +607,11 @@
       font-size: 12px;
       margin-right: 6px;
       margin-top: 6px;
+    }
+
+    .pill.grouped {
+      background: color-mix(in srgb, var(--group-color, var(--accent)) 18%, white);
+      border: 1px solid color-mix(in srgb, var(--group-color, var(--accent)) 42%, white);
     }
 
     pre {
@@ -671,7 +752,8 @@
       }
 
       .center-players-grid,
-      .center-status-grid {
+      .center-status-grid,
+      .video-grid {
         grid-template-columns: 1fr;
       }
 
@@ -779,6 +861,7 @@
       <div id="lobby-controls" class="stack hidden">
         <div id="identity-row" class="inline-stack">
           <input id="player-name" placeholder="Имя игрока" />
+          <input id="table-name" placeholder="Название стола" />
           <input id="game-id" placeholder="ID игры" />
         </div>
         <div id="lobby-buttons-row" class="inline-stack">
@@ -903,6 +986,7 @@
     const lobbyButtonsRowNode = document.getElementById("lobby-buttons-row");
     const gameIdInput = document.getElementById("game-id");
     const playerNameInput = document.getElementById("player-name");
+    const tableNameInput = document.getElementById("table-name");
     const bidValueInput = document.getElementById("bid-value");
     const statusBarNode = document.getElementById("status-bar");
     const playersSectionNode = document.getElementById("players-section");
@@ -931,6 +1015,7 @@
     };
 
     let ws = null;
+    let videoWs = null;
     let currentUser = null;
     let games = [];
     let users = [];
@@ -943,6 +1028,14 @@
     let movingPlayerId = null;
     let diceFaces = [1, 1];
     let audioContext = null;
+    let videoConfig = null;
+    let videoCallActive = false;
+    let localStream = null;
+    let audioEnabled = true;
+    let cameraEnabled = true;
+    const videoPeers = new Map();
+    const remoteStreams = new Map();
+    const videoParticipants = new Map();
     const phaseLabels = {
       waiting_for_players: "ожидание игроков",
       waiting_for_roll: "ожидание броска",
@@ -968,6 +1061,16 @@
       "#8338ec",
       "#ef476f"
     ];
+    const groupColors = {
+      alpha: "#f28482",
+      beta: "#84a59d",
+      gamma: "#577590",
+      delta: "#f6bd60",
+      epsilon: "#43aa8b",
+      zeta: "#9b5de5",
+      eta: "#f3722c",
+      theta: "#277da1",
+    };
     const boardPositions = [
       [1, 1],
       [1, 2], [1, 3], [1, 4], [1, 5], [1, 6], [1, 7], [1, 8], [1, 9], [1, 10],
@@ -1072,8 +1175,11 @@
     const getCurrentPlayer = () => state?.players?.[state.current_turn] || null;
     const getLocalPlayer = () => state?.players?.find((player) => player.id === playerId) || null;
     const getPositionsMap = (players) => Object.fromEntries(players.map((player) => [player.id, player.position]));
+    const getTileById = (tileId) => state?.board?.find((tile) => tile.id === tileId) || null;
+    const getTileNameById = (tileId) => getTileById(tileId)?.name || "-";
     const getPlayerById = (playerIdValue) => state?.players?.find((player) => player.id === playerIdValue) || null;
     const getPlayerNameById = (playerIdValue) => getPlayerById(playerIdValue)?.name || "-";
+    const getGroupColor = (groupId) => groupColors[groupId] || "#cbd5e1";
     const getPlayerColor = (playerIdValue) => {
       const index = state?.players?.findIndex((player) => player.id === playerIdValue) ?? -1;
       return playerColors[(index >= 0 ? index : 0) % playerColors.length];
@@ -1082,10 +1188,251 @@
       if (!state || state.pending_tile_id === null || state.pending_tile_id === undefined) return null;
       return state.board.find((tile) => tile.id === state.pending_tile_id) || null;
     };
+    const getPlayerAssetValue = (player) => state?.board?.reduce((sum, tile) => {
+      if (tile.owner_id !== player.id) return sum;
+      return sum + (tile.price || 0);
+    }, 0) || 0;
     const escapeHtml = (value) => String(value ?? "")
       .replaceAll("&", "&amp;")
       .replaceAll("<", "&lt;")
       .replaceAll(">", "&gt;");
+    const getLocalParticipantInfo = () => ({
+      user_id: currentUser?.id,
+      player_id: playerId,
+      username: currentUser?.username,
+      player_name: getLocalPlayer()?.name || currentUser?.username || "Вы",
+    });
+    const getParticipantDisplayName = (participant) => participant?.player_name || participant?.username || "Игрок";
+    const getVideoStatusText = () => {
+      if (!videoCallActive) return "Видеозвонок выключен";
+      const remoteCount = remoteStreams.size;
+      if (!remoteCount) return "Вы в звонке. Ожидание друзей...";
+      return `В звонке ${remoteCount + 1} участник(а)`;
+    };
+    const ensureVideoConfig = async () => {
+      if (videoConfig) return videoConfig;
+      videoConfig = await api("/api/video/config");
+      return videoConfig;
+    };
+    const buildRtcConfig = () => ({
+      iceServers: videoConfig?.ice_servers?.length ? videoConfig.ice_servers : [{ urls: ["stun:stun.l.google.com:19302"] }],
+    });
+    const cleanupPeer = (targetUserId) => {
+      const peer = videoPeers.get(targetUserId);
+      if (peer) {
+        try {
+          peer.close();
+        } catch (_) {
+          // no-op
+        }
+      }
+      videoPeers.delete(targetUserId);
+      remoteStreams.delete(targetUserId);
+      videoParticipants.delete(targetUserId);
+    };
+    const cleanupAllPeers = () => {
+      Array.from(videoPeers.keys()).forEach((targetUserId) => cleanupPeer(targetUserId));
+    };
+    const attachVideoStreams = () => {
+      const localVideoNode = document.getElementById("video-local-stream");
+      if (localVideoNode && localStream) {
+        localVideoNode.srcObject = localStream;
+      }
+      remoteStreams.forEach((stream, userId) => {
+        const remoteNode = document.getElementById(`video-remote-${userId}`);
+        if (remoteNode) {
+          remoteNode.srcObject = stream;
+        }
+      });
+    };
+    const renderVideoPanelMarkup = () => {
+      const localParticipant = getLocalParticipantInfo();
+      const remoteTiles = Array.from(remoteStreams.entries()).map(([userId]) => {
+        const participant = videoParticipants.get(userId);
+        return `
+          <div class="video-tile">
+            <video id="video-remote-${userId}" autoplay playsinline></video>
+            <div class="video-caption">${escapeHtml(getParticipantDisplayName(participant))}</div>
+          </div>
+        `;
+      }).join("");
+      const localTile = `
+        <div class="video-tile">
+          ${localStream ? '<video id="video-local-stream" autoplay playsinline muted></video>' : '<div class="video-placeholder">Камера не включена</div>'}
+          <div class="video-caption">${escapeHtml(getParticipantDisplayName(localParticipant))} (вы)</div>
+        </div>
+      `;
+      return `
+        <div class="center-panel video-panel">
+          <div class="center-head">
+            <h3>Видеозвонок</h3>
+            <div class="meta">${videoCallActive ? "онлайн" : "offline"}</div>
+          </div>
+          <div class="video-controls">
+            ${videoCallActive ? `
+              <button data-video-action="toggle-audio" class="secondary">${audioEnabled ? "Выключить микрофон" : "Включить микрофон"}</button>
+              <button data-video-action="toggle-camera" class="secondary">${cameraEnabled ? "Выключить камеру" : "Включить камеру"}</button>
+              <button data-video-action="leave-call" class="warn">Выйти из звонка</button>
+            ` : `
+              <button data-video-action="join-call">Войти в звонок</button>
+            `}
+          </div>
+          <div class="video-status">${escapeHtml(getVideoStatusText())}</div>
+          <div class="video-grid">
+            ${localTile}
+            ${remoteTiles || '<div class="video-placeholder">Друзья подключатся сюда автоматически</div>'}
+          </div>
+        </div>
+      `;
+    };
+    const sendVideoSignal = (targetUserId, signal) => {
+      if (!videoWs || videoWs.readyState !== WebSocket.OPEN) return;
+      videoWs.send(JSON.stringify({ type: "signal", target_user_id: targetUserId, signal }));
+    };
+    const createPeerConnection = (targetUserId) => {
+      if (videoPeers.has(targetUserId)) {
+        return videoPeers.get(targetUserId);
+      }
+      const peer = new RTCPeerConnection(buildRtcConfig());
+      if (localStream) {
+        localStream.getTracks().forEach((track) => peer.addTrack(track, localStream));
+      }
+      peer.onicecandidate = (event) => {
+        if (event.candidate) {
+          sendVideoSignal(targetUserId, { candidate: event.candidate.toJSON() });
+        }
+      };
+      peer.ontrack = (event) => {
+        const existing = remoteStreams.get(targetUserId) || new MediaStream();
+        event.streams[0].getTracks().forEach((track) => {
+          if (!existing.getTracks().some((item) => item.id === track.id)) {
+            existing.addTrack(track);
+          }
+        });
+        remoteStreams.set(targetUserId, existing);
+        renderBoard();
+      };
+      peer.onconnectionstatechange = () => {
+        if (["failed", "closed"].includes(peer.connectionState)) {
+          cleanupPeer(targetUserId);
+          renderBoard();
+        }
+      };
+      videoPeers.set(targetUserId, peer);
+      return peer;
+    };
+    const createOfferForParticipant = async (participant) => {
+      if (!participant?.user_id || participant.user_id === currentUser?.id) return;
+      const peer = createPeerConnection(participant.user_id);
+      const offer = await peer.createOffer();
+      await peer.setLocalDescription(offer);
+      sendVideoSignal(participant.user_id, { description: peer.localDescription });
+    };
+    const handleVideoSignal = async (fromUserId, signal) => {
+      if (!signal || !fromUserId || fromUserId === currentUser?.id) return;
+      const peer = createPeerConnection(fromUserId);
+      if (signal.description) {
+        await peer.setRemoteDescription(signal.description);
+        if (signal.description.type === "offer") {
+          const answer = await peer.createAnswer();
+          await peer.setLocalDescription(answer);
+          sendVideoSignal(fromUserId, { description: peer.localDescription });
+        }
+      }
+      if (signal.candidate) {
+        try {
+          await peer.addIceCandidate(signal.candidate);
+        } catch (_) {
+          // ignore late or duplicate candidates
+        }
+      }
+    };
+    const disconnectVideoWs = () => {
+      if (videoWs) {
+        videoWs.close();
+        videoWs = null;
+      }
+    };
+    const stopVideoCall = () => {
+      disconnectVideoWs();
+      cleanupAllPeers();
+      remoteStreams.clear();
+      videoParticipants.clear();
+      if (localStream) {
+        localStream.getTracks().forEach((track) => track.stop());
+      }
+      localStream = null;
+      videoCallActive = false;
+      audioEnabled = true;
+      cameraEnabled = true;
+      if (state) {
+        renderBoard();
+      }
+    };
+    const connectVideoWs = async () => {
+      const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+      videoWs = new WebSocket(`${protocol}://${window.location.host}/api/ws/video/${gameId}`);
+      videoWs.onmessage = async (event) => {
+        const message = JSON.parse(event.data);
+        if (message.type === "participants") {
+          message.participants.forEach((participant) => {
+            videoParticipants.set(participant.user_id, participant);
+          });
+          renderBoard();
+          for (const participant of message.participants) {
+            await createOfferForParticipant(participant);
+          }
+          return;
+        }
+        if (message.type === "participant_joined") {
+          videoParticipants.set(message.participant.user_id, message.participant);
+          renderBoard();
+          return;
+        }
+        if (message.type === "participant_left") {
+          cleanupPeer(message.user_id);
+          renderBoard();
+          return;
+        }
+        if (message.type === "signal") {
+          await handleVideoSignal(message.from_user_id, message.signal);
+        }
+      };
+      videoWs.onclose = () => {
+        videoWs = null;
+      };
+    };
+    const startVideoCall = async () => {
+      if (videoCallActive || !currentUser || !gameId) return;
+      if (!navigator.mediaDevices?.getUserMedia || !window.RTCPeerConnection) {
+        throw new Error("Браузер не поддерживает WebRTC");
+      }
+      await ensureVideoConfig();
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+      localStream = stream;
+      videoCallActive = true;
+      audioEnabled = true;
+      cameraEnabled = true;
+      videoParticipants.set(currentUser.id, getLocalParticipantInfo());
+      renderBoard();
+      await connectVideoWs();
+    };
+    const toggleAudio = () => {
+      if (!localStream) return;
+      audioEnabled = !audioEnabled;
+      localStream.getAudioTracks().forEach((track) => {
+        track.enabled = audioEnabled;
+      });
+      renderBoard();
+    };
+    const toggleCamera = () => {
+      if (!localStream) return;
+      cameraEnabled = !cameraEnabled;
+      localStream.getVideoTracks().forEach((track) => {
+        track.enabled = cameraEnabled;
+      });
+      renderBoard();
+    };
 
     const showAuthHint = (message) => {
       authHintNode.textContent = message;
@@ -1192,9 +1539,10 @@
           return `
             <div class="game-card ${isCurrent ? "current" : ""}">
               <div class="game-card-header">
-                <strong>${game.player_count}/${game.max_players} • ${phaseLabels[game.phase] || game.phase}</strong>
+                <strong>${game.name}</strong>
                 <span class="meta">Раунд ${game.round}</span>
               </div>
+              <div class="meta">${game.player_count}/${game.max_players} • ${phaseLabels[game.phase] || game.phase}</div>
               <div class="meta">ID: ${game.game_id}</div>
               <div class="meta">Игроки: ${game.players.join(", ") || "-"}</div>
               <div class="meta">${game.joined ? `Вы в игре как ${game.player_name}` : "Вы ещё не присоединились"}</div>
@@ -1306,7 +1654,7 @@
       statusRoundNode.textContent = String(state?.round ?? "-");
       statusPhaseNode.textContent = phaseLabels[state?.phase] || state?.phase || "-";
       statusMoneyNode.textContent = localPlayer ? String(localPlayer.money) : "-";
-      statusPositionNode.textContent = localPlayer ? `#${localPlayer.position}` : "-";
+      statusPositionNode.textContent = localPlayer ? getTileNameById(localPlayer.position) : "-";
       statusJailNode.textContent = localPlayer
         ? (localPlayer.in_jail ? `Да, ${localPlayer.jail_turns} ход(а)` : "Нет")
         : "-";
@@ -1472,6 +1820,9 @@
 
     const openGame = async (gameIdValue, shouldConnect = true) => {
       if (!currentUser) return;
+      if (videoCallActive && gameId && gameId !== gameIdValue) {
+        stopVideoCall();
+      }
       const summary = games.find((game) => game.game_id === gameIdValue) || null;
       gameId = gameIdValue;
       playerId = summary?.player_id || null;
@@ -1504,6 +1855,7 @@
 
     const resetSession = () => {
       disconnectWs();
+      stopVideoCall();
       currentUser = null;
       games = [];
       users = [];
@@ -1566,9 +1918,13 @@
             <span class="player-marker"></span>
             <strong>${player.name}</strong>
           </div>
-          <div class="meta">Деньги: ${player.money} | Позиция: ${player.position} | Отказы: ${player.refusals_used}/4</div>
+          <div class="meta">Деньги: ${player.money} | Активы: ${getPlayerAssetValue(player)} | Отказы: ${player.refusals_used}/4</div>
+          <div class="meta">Позиция: ${getTileNameById(player.position)}</div>
           <div class="meta">Тюрьма: ${player.in_jail ? `да (${player.jail_turns})` : "нет"} | Онлайн: ${player.is_connected ? "да" : "нет"}</div>
-          <div>${player.properties.map((id) => `<span class="pill">#${id}</span>`).join("") || "<span class='meta'>Нет активов</span>"}</div>
+          <div>${player.properties.map((id) => {
+            const tile = getTileById(id);
+            return `<span class="pill ${tile?.group_id ? "grouped" : ""}" ${tile?.group_id ? `style="--group-color: ${getGroupColor(tile.group_id)}"` : ""}>${getTileNameById(id)}</span>`;
+          }).join("") || "<span class='meta'>Нет активов</span>"}</div>
         `;
         playersNode.appendChild(card);
       });
@@ -1584,9 +1940,13 @@
             <span class="player-marker"></span>
             <strong>${player.name}${player.id === playerId ? " (вы)" : ""}</strong>
           </div>
-          <div class="meta">Деньги: ${player.money} | Позиция: ${player.position}</div>
+          <div class="meta">Деньги: ${player.money} | Активы: ${getPlayerAssetValue(player)}</div>
+          <div class="meta">Позиция: ${getTileNameById(player.position)}</div>
           <div class="meta">Тюрьма: ${player.in_jail ? `да (${player.jail_turns})` : "нет"} | Онлайн: ${player.is_connected ? "да" : "нет"}</div>
-          <div class="center-player-pills">${player.properties.map((id) => `<span class="pill">#${id}</span>`).join("") || "<span class='meta'>Нет активов</span>"}</div>
+          <div class="center-player-pills">${player.properties.map((id) => {
+            const tile = getTileById(id);
+            return `<span class="pill ${tile?.group_id ? "grouped" : ""}" ${tile?.group_id ? `style="--group-color: ${getGroupColor(tile.group_id)}"` : ""}>${getTileNameById(id)}</span>`;
+          }).join("") || "<span class='meta'>Нет активов</span>"}</div>
         </div>
       `).join("");
       const centerLog = escapeHtml(logNode.textContent.trim() || "Нет событий");
@@ -1597,7 +1957,7 @@
           <div class="center-primary">
             <div class="center-panel">
               <div class="center-head">
-                <div class="board-brand">Deupoly</div>
+                <div class="board-brand">${state.name || "Deupoly"}</div>
                 <div class="meta">Раунд ${state.round}</div>
               </div>
               <div class="dice-stage">
@@ -1626,21 +1986,26 @@
                   <strong>${localPlayer ? localPlayer.money : "-"}</strong>
                 </div>
                 <div class="center-status-card">
-                  <span class="meta">Ваша позиция</span>
-                  <strong>${localPlayer ? `#${localPlayer.position}` : "-"}</strong>
+                  <span class="meta">Ваши активы</span>
+                  <strong>${localPlayer ? getPlayerAssetValue(localPlayer) : "-"}</strong>
                 </div>
                 <div class="center-status-card">
                   <span class="meta">Тюрьма</span>
                   <strong>${localPlayer ? (localPlayer.in_jail ? `Да, ${localPlayer.jail_turns} ход(а)` : "Нет") : "-"}</strong>
                 </div>
                 <div class="center-status-card">
+                  <span class="meta">Ваша позиция</span>
+                  <strong>${localPlayer ? getTileNameById(localPlayer.position) : "-"}</strong>
+                </div>
+                <div class="center-status-card">
                   <span class="meta">Статус сделки</span>
-                  <strong>${state.pending_tile_id !== null && state.pending_tile_id !== undefined ? `Клетка #${state.pending_tile_id}` : "Нет ожидания"}</strong>
+                  <strong>${state.pending_tile_id !== null && state.pending_tile_id !== undefined ? getTileNameById(state.pending_tile_id) : "Нет ожидания"}</strong>
                 </div>
               </div>
             </div>
           </div>
           <div class="center-secondary">
+            ${renderVideoPanelMarkup()}
             <div class="center-panel">
               <div class="center-head">
                 <h3>Игроки</h3>
@@ -1665,13 +2030,19 @@
         const tileNode = document.createElement("div");
         const [row, column] = boardPositions[tile.id];
         const isCorner = [0, 10, 20, 30].includes(tile.id);
-        tileNode.className = `tile ${owners.length ? "active" : ""} ${isCorner ? "corner" : ""}`.trim();
+        tileNode.className = `tile ${owners.length ? "active" : ""} ${isCorner ? "corner" : ""} ${tile.group_id ? "grouped" : ""}`.trim();
         tileNode.style.gridRow = String(row);
         tileNode.style.gridColumn = String(column);
+        if (tile.group_id) {
+          tileNode.style.setProperty("--group-color", getGroupColor(tile.group_id));
+        }
+        const tileValueLabel = tile.is_purchasable
+          ? (tile.owner_id ? `Аренда: ${tile.base_rent}` : `Цена: ${tile.price}`)
+          : "";
         tileNode.innerHTML = `
-          <strong>#${tile.id} ${tile.name}</strong>
+          <strong>${tile.name}</strong>
           <small>${tileTypeLabels[tile.type] || tile.type}</small>
-          <small>Цена: ${tile.price} | Аренда: ${tile.base_rent}</small>
+          ${tileValueLabel ? `<small>${tileValueLabel}</small>` : ""}
           <small>Владелец: ${tile.owner_id ? getPlayerNameById(tile.owner_id) : "-"}</small>
           <small>Фишки:</small>
           <div class="token-row">
@@ -1680,6 +2051,7 @@
         `;
         boardNode.appendChild(tileNode);
       });
+      attachVideoStreams();
     };
 
     const sendAction = (action, payload = {}) => {
@@ -1827,6 +2199,7 @@
 
     backToTablesButton.onclick = async () => {
       disconnectWs();
+      stopVideoCall();
       saveLastGameId(null);
       resetLocalGameState();
       await refreshCurrentUser();
@@ -1841,7 +2214,8 @@
           method: "POST",
           body: JSON.stringify({
             max_players: 4,
-            player_name: playerNameInput.value.trim() || currentUser.username
+            player_name: playerNameInput.value.trim() || currentUser.username,
+            table_name: tableNameInput.value.trim() || `Стол ${currentUser.username}`
           })
         });
         gameId = data.game_id;
@@ -1911,6 +2285,31 @@
     document.getElementById("end-turn").onclick = () => sendAction("end_turn");
     document.getElementById("place-bid").onclick = () => sendAction("place_bid", { bid: Number(bidValueInput.value || 0) });
     document.getElementById("pass-auction").onclick = () => sendAction("pass_auction");
+
+    boardNode.onclick = async (event) => {
+      const button = event.target.closest("[data-video-action]");
+      if (!button) return;
+      const action = button.dataset.videoAction;
+      try {
+        if (action === "join-call") {
+          await startVideoCall();
+          return;
+        }
+        if (action === "leave-call") {
+          stopVideoCall();
+          return;
+        }
+        if (action === "toggle-audio") {
+          toggleAudio();
+          return;
+        }
+        if (action === "toggle-camera") {
+          toggleCamera();
+        }
+      } catch (error) {
+        log(`Ошибка видеозвонка: ${error.message}`);
+      }
+    };
 
     bootstrap();
   </script>

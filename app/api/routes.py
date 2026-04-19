@@ -15,6 +15,7 @@ from app.models.api import (
 from app.models.messages import ClientMessage
 from app.services.auth_service import AuthService
 from app.services.game_manager import GameManager
+from app.services.video_call_manager import VideoCallManager
 
 
 settings = get_settings()
@@ -26,6 +27,10 @@ def get_game_manager(request: Request) -> GameManager:
 
 def get_auth_service(request: Request) -> AuthService:
     return request.app.state.auth_service
+
+
+def get_video_call_manager(request: Request) -> VideoCallManager:
+    return request.app.state.video_call_manager
 
 
 async def get_current_user(
@@ -59,6 +64,20 @@ def _set_session_cookie(response: Response, session_token: str) -> None:
 
 def _clear_session_cookie(response: Response) -> None:
     response.delete_cookie(key=settings.session_cookie_name, path="/")
+
+
+def _build_ice_servers() -> list[dict]:
+    ice_servers: list[dict] = []
+    if settings.video_stun_urls:
+        ice_servers.append({"urls": settings.video_stun_urls})
+    if settings.video_turn_url:
+        turn_server = {"urls": [settings.video_turn_url]}
+        if settings.video_turn_username:
+            turn_server["username"] = settings.video_turn_username
+        if settings.video_turn_password:
+            turn_server["credential"] = settings.video_turn_password
+        ice_servers.append(turn_server)
+    return ice_servers
 
 
 def get_router() -> APIRouter:
@@ -103,6 +122,13 @@ def get_router() -> APIRouter:
     async def me(current_user: dict = Depends(get_current_user)) -> dict:
         return {"user": current_user}
 
+    @router.get("/video/config")
+    async def video_config(_: dict = Depends(get_current_user)) -> dict:
+        return {
+            "ice_servers": _build_ice_servers(),
+            "mesh_mode": True,
+        }
+
     @router.get("/admin/users", response_model=list[UserSummary])
     async def list_users(_: dict = Depends(get_admin_user), auth_service: AuthService = Depends(get_auth_service)) -> list[dict]:
         return await auth_service.list_users()
@@ -131,7 +157,13 @@ def get_router() -> APIRouter:
         gm: GameManager = Depends(get_game_manager),
     ) -> dict:
         player_name = payload.player_name or current_user["username"]
-        return await gm.create_game(user_id=current_user["id"], player_name=player_name, max_players=payload.max_players)
+        table_name = payload.table_name or f"Стол {current_user['username']}"
+        return await gm.create_game(
+            user_id=current_user["id"],
+            player_name=player_name,
+            max_players=payload.max_players,
+            table_name=table_name,
+        )
 
     @router.get("/games/{game_id}")
     async def get_game(game_id: str, _: dict = Depends(get_current_user), gm: GameManager = Depends(get_game_manager)) -> dict:
@@ -195,5 +227,48 @@ def get_router() -> APIRouter:
         except Exception as exc:
             await gm.send_error(websocket, game_id=game_id, message=f"Непредвиденная ошибка сервера: {exc}")
             await websocket.close(code=1011, reason="Непредвиденная ошибка сервера")
+
+    @router.websocket("/ws/video/{game_id}")
+    async def video_socket(websocket: WebSocket, game_id: str) -> None:
+        gm: GameManager = websocket.app.state.game_manager
+        auth_service: AuthService = websocket.app.state.auth_service
+        video_manager: VideoCallManager = websocket.app.state.video_call_manager
+        session_token = websocket.cookies.get(settings.session_cookie_name)
+        user = await auth_service.get_user_by_session(session_token)
+        if user is None:
+            await websocket.close(code=4401, reason="Требуется вход в систему")
+            return
+
+        try:
+            membership = await gm.get_membership(game_id=game_id, user_id=user["id"])
+        except GameError as exc:
+            await websocket.close(code=4403, reason=str(exc))
+            return
+
+        await websocket.accept()
+        existing_participants = await video_manager.connect(game_id=game_id, user=user, player=membership, websocket=websocket)
+        await websocket.send_json({"type": "participants", "participants": existing_participants})
+
+        try:
+            while True:
+                message = await websocket.receive_json()
+                message_type = message.get("type")
+                if message_type == "signal":
+                    target_user_id = message.get("target_user_id")
+                    signal = message.get("signal")
+                    if target_user_id and isinstance(signal, dict):
+                        await video_manager.relay_signal(
+                            game_id=game_id,
+                            from_user=user,
+                            target_user_id=target_user_id,
+                            signal=signal,
+                        )
+                elif message_type == "ping":
+                    await websocket.send_json({"type": "pong"})
+        except WebSocketDisconnect:
+            await video_manager.disconnect(game_id=game_id, user_id=user["id"], websocket=websocket)
+        except Exception:
+            await video_manager.disconnect(game_id=game_id, user_id=user["id"], websocket=websocket)
+            await websocket.close(code=1011, reason="Ошибка видеосоединения")
 
     return router

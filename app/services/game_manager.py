@@ -26,9 +26,15 @@ class GameManager:
         self._storage = storage
         self._games: dict[str, GameSession] = {}
 
-    async def create_game(self, user_id: str, player_name: str, max_players: int = 4) -> dict[str, Any]:
+    async def create_game(
+        self,
+        user_id: str,
+        player_name: str,
+        max_players: int = 4,
+        table_name: str = "Новый стол",
+    ) -> dict[str, Any]:
         game_id = str(uuid4())
-        session = GameSession(engine=GameEngine(game_id=game_id, max_players=max_players))
+        session = GameSession(engine=GameEngine(game_id=game_id, max_players=max_players, name=table_name))
         player = session.engine.add_player(player_name)
         self._games[game_id] = session
         await self._storage.save_membership(
