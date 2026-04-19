@@ -276,14 +276,19 @@
 
     .players {
       display: grid;
+      grid-auto-flow: column;
+      grid-auto-columns: minmax(220px, 1fr);
       gap: 10px;
+      overflow-x: auto;
+      padding-bottom: 4px;
     }
 
     .player-card {
       border: 1px solid var(--line);
       border-radius: 14px;
       padding: 12px;
-      background: white;
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(255, 248, 232, 0.86));
+      border-top: 4px solid var(--player-color, var(--line));
     }
 
     .player-card.current {
@@ -296,6 +301,45 @@
       opacity: 0.75;
     }
 
+    .player-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+
+    .player-marker {
+      width: 14px;
+      height: 14px;
+      border-radius: 999px;
+      background: var(--player-color, var(--accent));
+      box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.06);
+      flex: 0 0 auto;
+    }
+
+    .player-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      font-size: 12px;
+      color: #111827;
+      background: color-mix(in srgb, var(--player-color, var(--accent)) 18%, white);
+      border: 1px solid color-mix(in srgb, var(--player-color, var(--accent)) 42%, white);
+      margin-right: 6px;
+      margin-top: 6px;
+    }
+
+    .player-chip::before {
+      content: "";
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: var(--player-color, var(--accent));
+      flex: 0 0 auto;
+    }
+
     @media (max-width: 900px) {
       .layout {
         grid-template-columns: 1fr;
@@ -303,6 +347,10 @@
 
       .status-bar {
         grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .players {
+        grid-auto-columns: minmax(180px, 75%);
       }
 
       .board {
@@ -494,6 +542,14 @@
       audit: "проверка",
       jackpot: "джекпот"
     };
+    const playerColors = [
+      "#e76f51",
+      "#2a9d8f",
+      "#3a86ff",
+      "#ffb703",
+      "#8338ec",
+      "#ef476f"
+    ];
     const boardPositions = [
       [11, 11],
       [11, 10], [11, 9], [11, 8], [11, 7], [11, 6], [11, 5], [11, 4], [11, 3], [11, 2],
@@ -516,6 +572,10 @@
 
     const getCurrentPlayer = () => state?.players?.[state.current_turn] || null;
     const getLocalPlayer = () => state?.players?.find((player) => player.id === playerId) || null;
+    const getPlayerColor = (playerIdValue) => {
+      const index = state?.players?.findIndex((player) => player.id === playerIdValue) ?? -1;
+      return playerColors[(index >= 0 ? index : 0) % playerColors.length];
+    };
     const getPendingTile = () => {
       if (!state || state.pending_tile_id === null || state.pending_tile_id === undefined) return null;
       return state.board.find((tile) => tile.id === state.pending_tile_id) || null;
@@ -614,7 +674,7 @@
       lobbyGameIdNode.textContent = `Игра: ${state.id}`;
       lobbyPlayersCountNode.textContent = `Игроков: ${playersCount} / минимум 2`;
       lobbyPlayersNode.innerHTML = state.players
-        .map((player) => `<span class="pill">${player.name}${player.id === playerId ? " (вы)" : ""}</span>`)
+        .map((player) => `<span class="player-chip" style="--player-color: ${getPlayerColor(player.id)}">${player.name}${player.id === playerId ? " (вы)" : ""}</span>`)
         .join("");
 
       if (!localPlayer) {
@@ -716,8 +776,12 @@
       state.players.forEach((player) => {
         const card = document.createElement("div");
         card.className = `player-card ${player.id === currentPlayerId ? "current" : ""}`;
+        card.style.setProperty("--player-color", getPlayerColor(player.id));
         card.innerHTML = `
-          <strong>${player.name}</strong>
+          <div class="player-header">
+            <span class="player-marker"></span>
+            <strong>${player.name}</strong>
+          </div>
           <div class="meta">Деньги: ${player.money} | Позиция: ${player.position} | Отказы: ${player.refusals_used}/4</div>
           <div class="meta">Тюрьма: ${player.in_jail ? `да (${player.jail_turns})` : "нет"} | Онлайн: ${player.is_connected ? "да" : "нет"}</div>
           <div>${player.properties.map((id) => `<span class="pill">#${id}</span>`).join("") || "<span class='meta'>Нет активов</span>"}</div>
@@ -742,7 +806,7 @@
       boardNode.appendChild(centerNode);
 
       state.board.forEach((tile) => {
-        const owners = state.players.filter((player) => player.position === tile.id).map((player) => player.name);
+        const owners = state.players.filter((player) => player.position === tile.id);
         const tileNode = document.createElement("div");
         const [row, column] = boardPositions[tile.id];
         const isCorner = [0, 10, 20, 30].includes(tile.id);
@@ -754,7 +818,10 @@
           <small>${tileTypeLabels[tile.type] || tile.type}</small>
           <small>Цена: ${tile.price} | Аренда: ${tile.base_rent}</small>
           <small>Владелец: ${tile.owner_id || "-"}</small>
-          <small>Игроки: ${owners.join(", ") || "-"}</small>
+          <small>Игроки:</small>
+          <div>
+            ${owners.map((player) => `<span class="player-chip" style="--player-color: ${getPlayerColor(player.id)}">${player.name}</span>`).join("") || "<span class='meta'>-</span>"}
+          </div>
         `;
         boardNode.appendChild(tileNode);
       });
