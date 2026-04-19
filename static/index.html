@@ -61,6 +61,18 @@
       gap: 12px;
     }
 
+    .inline-stack {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .inline-stack > * {
+      flex: 1 1 160px;
+      min-width: 0;
+    }
+
     .hidden {
       display: none !important;
     }
@@ -98,6 +110,47 @@
 
     button:hover:not(:disabled) {
       transform: translateY(-1px);
+    }
+
+    .action-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .action-bar button,
+    .action-bar input {
+      width: auto;
+      min-width: 160px;
+      flex: 0 1 auto;
+    }
+
+    .status-bar {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .status-card {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 10px 12px;
+      background: rgba(255, 255, 255, 0.82);
+    }
+
+    .status-card .meta {
+      display: block;
+      margin-bottom: 4px;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .status-card strong {
+      display: block;
+      font-size: 15px;
+      line-height: 1.25;
     }
 
     .board {
@@ -219,6 +272,10 @@
         grid-template-columns: 1fr;
       }
 
+      .status-bar {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
       .board {
         gap: 6px;
       }
@@ -238,6 +295,10 @@
     }
 
     @media (max-width: 640px) {
+      .status-bar {
+        grid-template-columns: 1fr;
+      }
+
       .board-center {
         padding: 12px;
       }
@@ -257,23 +318,15 @@
       </div>
 
       <div id="lobby-controls" class="stack">
-        <input id="player-name" placeholder="Имя игрока" value="Игрок 1" />
-        <button id="create-game">Создать игру</button>
-        <input id="game-id" placeholder="ID игры" />
-        <button id="join-game" class="secondary">Войти в игру</button>
-        <button id="start-game">Начать игру</button>
-      </div>
-
-      <div id="actions-section" class="stack hidden">
-        <button id="roll-dice" class="hidden">Бросить кубики</button>
-        <button id="buy-property" class="hidden">Купить клетку</button>
-        <button id="decline-property" class="secondary hidden">Отказаться от покупки</button>
-        <button id="start-auction" class="secondary hidden">Запустить аукцион</button>
-        <input id="bid-value" class="hidden" type="number" min="0" placeholder="Ставка" />
-        <button id="place-bid" class="hidden">Сделать ставку</button>
-        <button id="pass-auction" class="warn hidden">Пас</button>
-        <button id="leave-jail" class="secondary hidden">Заплатить 50 и выйти</button>
-        <button id="end-turn" class="hidden">Завершить ход</button>
+        <div id="identity-row" class="inline-stack">
+          <input id="player-name" placeholder="Имя игрока" value="Игрок 1" />
+          <input id="game-id" placeholder="ID игры" />
+        </div>
+        <div id="lobby-buttons-row" class="inline-stack">
+          <button id="create-game">Создать игру</button>
+          <button id="join-game" class="secondary">Войти в игру</button>
+          <button id="start-game">Начать игру</button>
+        </div>
       </div>
 
       <div id="session-section" class="stack hidden">
@@ -288,6 +341,45 @@
     </section>
 
     <section id="game-section" class="panel stack hidden">
+      <div id="status-bar" class="status-bar">
+        <div class="status-card">
+          <span class="meta">Текущий ход</span>
+          <strong id="status-current-player">-</strong>
+        </div>
+        <div class="status-card">
+          <span class="meta">Раунд</span>
+          <strong id="status-round">-</strong>
+        </div>
+        <div class="status-card">
+          <span class="meta">Фаза</span>
+          <strong id="status-phase">-</strong>
+        </div>
+        <div class="status-card">
+          <span class="meta">Ваши деньги</span>
+          <strong id="status-money">-</strong>
+        </div>
+        <div class="status-card">
+          <span class="meta">Ваша позиция</span>
+          <strong id="status-position">-</strong>
+        </div>
+        <div class="status-card">
+          <span class="meta">Тюрьма</span>
+          <strong id="status-jail">-</strong>
+        </div>
+      </div>
+
+      <div id="actions-section" class="action-bar hidden">
+        <button id="roll-dice" class="hidden">Бросить кубики</button>
+        <button id="buy-property" class="hidden">Купить клетку</button>
+        <button id="decline-property" class="secondary hidden">Отказаться от покупки</button>
+        <button id="start-auction" class="secondary hidden">Запустить аукцион</button>
+        <input id="bid-value" class="hidden" type="number" min="0" placeholder="Ставка" />
+        <button id="place-bid" class="hidden">Сделать ставку</button>
+        <button id="pass-auction" class="warn hidden">Пас</button>
+        <button id="leave-jail" class="secondary hidden">Заплатить 50 и выйти</button>
+        <button id="end-turn" class="hidden">Завершить ход</button>
+      </div>
+
       <div>
         <h2>Игроки</h2>
         <div id="players" class="players"></div>
@@ -311,9 +403,18 @@
     const stateNode = document.getElementById("state");
     const boardNode = document.getElementById("board");
     const playersNode = document.getElementById("players");
+    const lobbyControlsNode = document.getElementById("lobby-controls");
+    const identityRowNode = document.getElementById("identity-row");
+    const lobbyButtonsRowNode = document.getElementById("lobby-buttons-row");
     const gameIdInput = document.getElementById("game-id");
     const playerNameInput = document.getElementById("player-name");
     const bidValueInput = document.getElementById("bid-value");
+    const statusCurrentPlayerNode = document.getElementById("status-current-player");
+    const statusRoundNode = document.getElementById("status-round");
+    const statusPhaseNode = document.getElementById("status-phase");
+    const statusMoneyNode = document.getElementById("status-money");
+    const statusPositionNode = document.getElementById("status-position");
+    const statusJailNode = document.getElementById("status-jail");
     const actionsSectionNode = document.getElementById("actions-section");
     const sessionSectionNode = document.getElementById("session-section");
     const logSectionNode = document.getElementById("log-section");
@@ -427,20 +528,26 @@
       const inLobby = !state || state.phase === "waiting_for_players";
       const availableActions = new Set(getAvailableActions());
       const localPlayer = getLocalPlayer();
+      const isJoined = Boolean(playerId && localPlayer);
       const canStartGame = Boolean(
         state &&
         state.phase === "waiting_for_players" &&
-        playerId &&
-        localPlayer &&
+        isJoined &&
         state.players.length >= 2
       );
 
+      setHidden(lobbyControlsNode, !inLobby);
+      setHidden(identityRowNode, isJoined);
+      setHidden(lobbyButtonsRowNode, false);
       setHidden(actionsSectionNode, inLobby);
       setHidden(sessionSectionNode, inLobby);
       setHidden(logSectionNode, inLobby);
       setHidden(gameSectionNode, inLobby);
 
       startGameButton.disabled = !canStartGame;
+      setHidden(startGameButton, !isJoined);
+      setHidden(document.getElementById("create-game"), isJoined);
+      setHidden(document.getElementById("join-game"), isJoined);
 
       Object.entries(actionButtons).forEach(([action, button]) => {
         const isVisible = availableActions.has(action);
@@ -451,6 +558,20 @@
       const showBidInput = availableActions.has("place_bid");
       setHidden(bidValueInput, !showBidInput);
       bidValueInput.disabled = !showBidInput;
+    };
+
+    const renderStatusBar = () => {
+      const localPlayer = getLocalPlayer();
+      const currentPlayer = getCurrentPlayer();
+
+      statusCurrentPlayerNode.textContent = currentPlayer?.name || "-";
+      statusRoundNode.textContent = String(state?.round ?? "-");
+      statusPhaseNode.textContent = phaseLabels[state?.phase] || state?.phase || "-";
+      statusMoneyNode.textContent = localPlayer ? String(localPlayer.money) : "-";
+      statusPositionNode.textContent = localPlayer ? `#${localPlayer.position}` : "-";
+      statusJailNode.textContent = localPlayer
+        ? (localPlayer.in_jail ? `Да, ${localPlayer.jail_turns} ход(а)` : "Нет")
+        : "-";
     };
 
     const api = async (url, options = {}) => {
@@ -502,6 +623,7 @@
       stateNode.textContent = JSON.stringify(state, null, 2);
       sessionNode.textContent = `игра=${state.id} игрок=${playerId || "-"} фаза=${phaseLabels[state.phase] || state.phase} раунд=${state.round}`;
       renderControls();
+      renderStatusBar();
       renderPlayers();
       renderBoard();
       if (state.last_event) {
