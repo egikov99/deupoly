@@ -153,6 +153,35 @@
       line-height: 1.25;
     }
 
+    .lobby-status {
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 14px;
+      background: rgba(255, 255, 255, 0.82);
+    }
+
+    .lobby-status strong {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 18px;
+    }
+
+    .lobby-players {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .hint {
+      font-size: 13px;
+      color: #7f1d1d;
+      background: rgba(155, 34, 38, 0.08);
+      border: 1px solid rgba(155, 34, 38, 0.14);
+      border-radius: 12px;
+      padding: 10px 12px;
+    }
+
     .board {
       display: grid;
       grid-template-columns: repeat(11, minmax(0, 1fr));
@@ -329,6 +358,14 @@
         </div>
       </div>
 
+      <div id="lobby-status" class="lobby-status hidden">
+        <strong>Лобби</strong>
+        <div id="lobby-game-id" class="meta">Игра: -</div>
+        <div id="lobby-players-count" class="meta">Игроков: 0 / 2</div>
+        <div id="lobby-start-hint" class="hint hidden"></div>
+        <div id="lobby-players" class="lobby-players"></div>
+      </div>
+
       <div id="session-section" class="stack hidden">
         <h3>Сессия</h3>
         <div id="session" class="meta">Нет активной сессии</div>
@@ -404,6 +441,11 @@
     const boardNode = document.getElementById("board");
     const playersNode = document.getElementById("players");
     const lobbyControlsNode = document.getElementById("lobby-controls");
+    const lobbyStatusNode = document.getElementById("lobby-status");
+    const lobbyGameIdNode = document.getElementById("lobby-game-id");
+    const lobbyPlayersCountNode = document.getElementById("lobby-players-count");
+    const lobbyStartHintNode = document.getElementById("lobby-start-hint");
+    const lobbyPlayersNode = document.getElementById("lobby-players");
     const identityRowNode = document.getElementById("identity-row");
     const lobbyButtonsRowNode = document.getElementById("lobby-buttons-row");
     const gameIdInput = document.getElementById("game-id");
@@ -529,14 +571,16 @@
       const availableActions = new Set(getAvailableActions());
       const localPlayer = getLocalPlayer();
       const isJoined = Boolean(playerId && localPlayer);
+      const playersCount = state?.players?.length || 0;
       const canStartGame = Boolean(
         state &&
         state.phase === "waiting_for_players" &&
         isJoined &&
-        state.players.length >= 2
+        playersCount >= 2
       );
 
       setHidden(lobbyControlsNode, !inLobby);
+      setHidden(lobbyStatusNode, !inLobby || !state);
       setHidden(identityRowNode, isJoined);
       setHidden(lobbyButtonsRowNode, false);
       setHidden(actionsSectionNode, inLobby);
@@ -558,6 +602,40 @@
       const showBidInput = availableActions.has("place_bid");
       setHidden(bidValueInput, !showBidInput);
       bidValueInput.disabled = !showBidInput;
+    };
+
+    const renderLobbyStatus = () => {
+      if (!state) return;
+
+      const localPlayer = getLocalPlayer();
+      const playersCount = state.players.length;
+      const missingPlayers = Math.max(0, 2 - playersCount);
+
+      lobbyGameIdNode.textContent = `Игра: ${state.id}`;
+      lobbyPlayersCountNode.textContent = `Игроков: ${playersCount} / минимум 2`;
+      lobbyPlayersNode.innerHTML = state.players
+        .map((player) => `<span class="pill">${player.name}${player.id === playerId ? " (вы)" : ""}</span>`)
+        .join("");
+
+      if (!localPlayer) {
+        lobbyStartHintNode.textContent = "Сначала войдите в игру как игрок.";
+        setHidden(lobbyStartHintNode, false);
+        return;
+      }
+
+      if (missingPlayers > 0) {
+        lobbyStartHintNode.textContent = `Для старта нужно ещё ${missingPlayers} игрок(а).`;
+        setHidden(lobbyStartHintNode, false);
+        return;
+      }
+
+      lobbyStartHintNode.textContent = "Можно начинать игру.";
+      setHidden(lobbyStartHintNode, false);
+    };
+
+    const showLobbyHint = (message) => {
+      lobbyStartHintNode.textContent = message;
+      setHidden(lobbyStartHintNode, false);
     };
 
     const renderStatusBar = () => {
@@ -623,6 +701,7 @@
       stateNode.textContent = JSON.stringify(state, null, 2);
       sessionNode.textContent = `игра=${state.id} игрок=${playerId || "-"} фаза=${phaseLabels[state.phase] || state.phase} раунд=${state.round}`;
       renderControls();
+      renderLobbyStatus();
       renderStatusBar();
       renderPlayers();
       renderBoard();
@@ -690,34 +769,54 @@
     };
 
     document.getElementById("create-game").onclick = async () => {
-      const data = await api("/api/games", {
-        method: "POST",
-        body: JSON.stringify({ max_players: 4 })
-      });
-      gameId = data.game_id;
-      gameIdInput.value = gameId;
-      renderControls();
-      log(`Создана игра ${gameId}`);
+      try {
+        const data = await api("/api/games", {
+          method: "POST",
+          body: JSON.stringify({ max_players: 4 })
+        });
+        gameId = data.game_id;
+        state = data.state;
+        gameIdInput.value = gameId;
+        renderState();
+        log(`Создана игра ${gameId}`);
+      } catch (error) {
+        showLobbyHint(`Ошибка создания игры: ${error.message}`);
+      }
     };
 
     document.getElementById("join-game").onclick = async () => {
-      gameId = gameIdInput.value.trim();
-      if (!gameId) return;
-      const data = await api(`/api/games/${gameId}/players`, {
-        method: "POST",
-        body: JSON.stringify({ name: playerNameInput.value.trim() || "Игрок" })
-      });
-      playerId = data.player.id;
-      state = data.state;
-      renderState();
-      connectWs();
-      log(`Подключение к игре как ${data.player.name}`);
+      try {
+        gameId = gameIdInput.value.trim();
+        if (!gameId) {
+          log("Введите ID игры.");
+          return;
+        }
+        const data = await api(`/api/games/${gameId}/players`, {
+          method: "POST",
+          body: JSON.stringify({ name: playerNameInput.value.trim() || "Игрок" })
+        });
+        playerId = data.player.id;
+        state = data.state;
+        renderState();
+        connectWs();
+        log(`Подключение к игре как ${data.player.name}`);
+      } catch (error) {
+        showLobbyHint(`Ошибка входа в игру: ${error.message}`);
+      }
     };
 
     document.getElementById("start-game").onclick = async () => {
-      gameId = gameIdInput.value.trim();
-      await api(`/api/games/${gameId}/start`, { method: "POST" });
-      log("Игра началась");
+      try {
+        gameId = state?.id || gameIdInput.value.trim();
+        if (!gameId) {
+          log("Не найден ID игры для старта.");
+          return;
+        }
+        await api(`/api/games/${gameId}/start`, { method: "POST" });
+        log("Игра началась");
+      } catch (error) {
+        showLobbyHint(`Ошибка старта игры: ${error.message}`);
+      }
     };
 
     document.getElementById("roll-dice").onclick = () => sendAction("roll_dice");
