@@ -34,8 +34,9 @@
     .layout {
       display: grid;
       gap: 16px;
-      grid-template-columns: 380px 1fr;
+      grid-template-columns: 340px minmax(0, 1fr);
       padding: 24px;
+      align-items: start;
     }
 
     .panel {
@@ -153,6 +154,25 @@
       line-height: 1.25;
     }
 
+    .service-bar {
+      display: grid;
+      grid-template-columns: minmax(280px, 1fr) minmax(360px, 2fr);
+      gap: 12px;
+      align-items: start;
+    }
+
+    .service-card {
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 14px;
+      background: rgba(255, 255, 255, 0.82);
+      min-width: 0;
+    }
+
+    .service-card h3 {
+      margin-bottom: 10px;
+    }
+
     .lobby-status {
       border: 1px solid var(--line);
       border-radius: 16px;
@@ -219,6 +239,43 @@
       margin-bottom: 8px;
     }
 
+    .center-stage {
+      display: grid;
+      gap: 14px;
+      justify-items: center;
+    }
+
+    .dice-stage {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      justify-content: center;
+      min-height: 72px;
+    }
+
+    .die {
+      width: 58px;
+      height: 58px;
+      border-radius: 16px;
+      border: 1px solid rgba(28, 29, 33, 0.14);
+      background: linear-gradient(180deg, #ffffff, #fff3e2);
+      box-shadow: inset 0 -8px 14px rgba(0, 0, 0, 0.06), 0 10px 20px rgba(0, 0, 0, 0.08);
+      display: grid;
+      place-items: center;
+      font-size: 26px;
+      font-weight: 700;
+      transform-origin: center;
+    }
+
+    .die.rolling {
+      animation: dice-roll 0.7s ease-in-out;
+    }
+
+    .dice-total {
+      font-size: 14px;
+      opacity: 0.78;
+    }
+
     .tile {
       min-width: 0;
       min-height: 0;
@@ -265,7 +322,7 @@
     pre {
       white-space: pre-wrap;
       word-break: break-word;
-      max-height: 260px;
+      max-height: 220px;
       overflow: auto;
       border-radius: 14px;
       background: #10151b;
@@ -340,6 +397,40 @@
       flex: 0 0 auto;
     }
 
+    .token-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      min-height: 22px;
+    }
+
+    .token {
+      width: 16px;
+      height: 16px;
+      border-radius: 999px;
+      background: var(--player-color, var(--accent));
+      border: 2px solid rgba(255, 255, 255, 0.92);
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18), 0 0 0 1px rgba(28, 29, 33, 0.1);
+    }
+
+    .token.moving {
+      animation: token-hop 0.2s ease-in-out;
+    }
+
+    @keyframes dice-roll {
+      0% { transform: rotate(0deg) scale(1); }
+      25% { transform: rotate(14deg) scale(1.08) translateY(-2px); }
+      50% { transform: rotate(-18deg) scale(0.95) translateY(3px); }
+      75% { transform: rotate(10deg) scale(1.05) translateY(-1px); }
+      100% { transform: rotate(0deg) scale(1); }
+    }
+
+    @keyframes token-hop {
+      0% { transform: translateY(0) scale(1); }
+      45% { transform: translateY(-7px) scale(1.08); }
+      100% { transform: translateY(0) scale(1); }
+    }
+
     @media (max-width: 900px) {
       .layout {
         grid-template-columns: 1fr;
@@ -347,6 +438,10 @@
 
       .status-bar {
         grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .service-bar {
+        grid-template-columns: 1fr;
       }
 
       .players {
@@ -368,6 +463,12 @@
 
       .board-center strong {
         font-size: 20px;
+      }
+
+      .die {
+        width: 50px;
+        height: 50px;
+        font-size: 22px;
       }
     }
 
@@ -414,15 +515,6 @@
         <div id="lobby-players" class="lobby-players"></div>
       </div>
 
-      <div id="session-section" class="stack hidden">
-        <h3>Сессия</h3>
-        <div id="session" class="meta">Нет активной сессии</div>
-      </div>
-
-      <div id="log-section" class="stack hidden">
-        <h3>Лог</h3>
-        <pre id="log"></pre>
-      </div>
     </section>
 
     <section id="game-section" class="panel stack hidden">
@@ -475,9 +567,16 @@
         <div id="board" class="board"></div>
       </div>
 
-      <div>
-        <h2>Состояние</h2>
-        <pre id="state"></pre>
+      <div id="service-bar" class="service-bar hidden">
+        <div id="session-section" class="service-card hidden">
+          <h3>Сессия</h3>
+          <div id="session" class="meta">Нет активной сессии</div>
+        </div>
+
+        <div id="log-section" class="service-card hidden">
+          <h3>Лог</h3>
+          <pre id="log"></pre>
+        </div>
       </div>
     </section>
   </div>
@@ -485,7 +584,6 @@
   <script>
     const sessionNode = document.getElementById("session");
     const logNode = document.getElementById("log");
-    const stateNode = document.getElementById("state");
     const boardNode = document.getElementById("board");
     const playersNode = document.getElementById("players");
     const lobbyControlsNode = document.getElementById("lobby-controls");
@@ -506,6 +604,7 @@
     const statusPositionNode = document.getElementById("status-position");
     const statusJailNode = document.getElementById("status-jail");
     const actionsSectionNode = document.getElementById("actions-section");
+    const serviceBarNode = document.getElementById("service-bar");
     const sessionSectionNode = document.getElementById("session-section");
     const logSectionNode = document.getElementById("log-section");
     const gameSectionNode = document.getElementById("game-section");
@@ -525,6 +624,12 @@
     let state = null;
     let playerId = null;
     let gameId = null;
+    let displayPositions = {};
+    let pendingDiceAnimation = null;
+    let isAnimatingMovement = false;
+    let movingPlayerId = null;
+    let diceFaces = [1, 1];
+    let audioContext = null;
     const phaseLabels = {
       waiting_for_players: "ожидание игроков",
       waiting_for_roll: "ожидание броска",
@@ -551,19 +656,72 @@
       "#ef476f"
     ];
     const boardPositions = [
-      [11, 11],
-      [11, 10], [11, 9], [11, 8], [11, 7], [11, 6], [11, 5], [11, 4], [11, 3], [11, 2],
-      [11, 1],
-      [10, 1], [9, 1], [8, 1], [7, 1], [6, 1], [5, 1], [4, 1], [3, 1], [2, 1],
       [1, 1],
       [1, 2], [1, 3], [1, 4], [1, 5], [1, 6], [1, 7], [1, 8], [1, 9], [1, 10],
       [1, 11],
-      [2, 11], [3, 11], [4, 11], [5, 11], [6, 11], [7, 11], [8, 11], [9, 11], [10, 11]
+      [2, 11], [3, 11], [4, 11], [5, 11], [6, 11], [7, 11], [8, 11], [9, 11], [10, 11],
+      [11, 11],
+      [11, 10], [11, 9], [11, 8], [11, 7], [11, 6], [11, 5], [11, 4], [11, 3], [11, 2],
+      [11, 1],
+      [10, 1], [9, 1], [8, 1], [7, 1], [6, 1], [5, 1], [4, 1], [3, 1], [2, 1]
     ];
 
     const log = (message) => {
       const timestamp = new Date().toLocaleTimeString();
       logNode.textContent = `[${timestamp}] ${message}\n` + logNode.textContent;
+    };
+
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    const ensureAudioContext = async () => {
+      if (!window.AudioContext && !window.webkitAudioContext) return null;
+      if (!audioContext) {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        audioContext = new AudioCtx();
+      }
+      if (audioContext.state === "suspended") {
+        await audioContext.resume();
+      }
+      return audioContext;
+    };
+
+    const playDiceSound = async () => {
+      const ctx = await ensureAudioContext();
+      if (!ctx) return;
+
+      const now = ctx.currentTime;
+      for (let i = 0; i < 5; i += 1) {
+        const oscillator = ctx.createOscillator();
+        const gain = ctx.createGain();
+        oscillator.type = "triangle";
+        oscillator.frequency.setValueAtTime(240 + Math.random() * 180, now + i * 0.05);
+        gain.gain.setValueAtTime(0.0001, now + i * 0.05);
+        gain.gain.exponentialRampToValueAtTime(0.04, now + i * 0.05 + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + i * 0.05 + 0.08);
+        oscillator.connect(gain);
+        gain.connect(ctx.destination);
+        oscillator.start(now + i * 0.05);
+        oscillator.stop(now + i * 0.05 + 0.09);
+      }
+    };
+
+    const playStepSound = async () => {
+      const ctx = await ensureAudioContext();
+      if (!ctx) return;
+
+      const now = ctx.currentTime;
+      const oscillator = ctx.createOscillator();
+      const gain = ctx.createGain();
+      oscillator.type = "sine";
+      oscillator.frequency.setValueAtTime(140, now);
+      oscillator.frequency.exponentialRampToValueAtTime(90, now + 0.08);
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.exponentialRampToValueAtTime(0.035, now + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.09);
+      oscillator.connect(gain);
+      gain.connect(ctx.destination);
+      oscillator.start(now);
+      oscillator.stop(now + 0.1);
     };
 
     const setHidden = (node, hidden) => {
@@ -572,6 +730,7 @@
 
     const getCurrentPlayer = () => state?.players?.[state.current_turn] || null;
     const getLocalPlayer = () => state?.players?.find((player) => player.id === playerId) || null;
+    const getPositionsMap = (players) => Object.fromEntries(players.map((player) => [player.id, player.position]));
     const getPlayerColor = (playerIdValue) => {
       const index = state?.players?.findIndex((player) => player.id === playerIdValue) ?? -1;
       return playerColors[(index >= 0 ? index : 0) % playerColors.length];
@@ -644,9 +803,10 @@
       setHidden(identityRowNode, isJoined);
       setHidden(lobbyButtonsRowNode, false);
       setHidden(actionsSectionNode, inLobby);
+      setHidden(gameSectionNode, inLobby);
+      setHidden(serviceBarNode, inLobby);
       setHidden(sessionSectionNode, inLobby);
       setHidden(logSectionNode, inLobby);
-      setHidden(gameSectionNode, inLobby);
 
       startGameButton.disabled = !canStartGame;
       setHidden(startGameButton, !isJoined);
@@ -712,6 +872,42 @@
         : "-";
     };
 
+    const syncDisplayPositions = (players) => {
+      displayPositions = getPositionsMap(players);
+    };
+
+    const animateDice = async (first, second) => {
+      diceFaces = [first, second];
+      renderBoard();
+      const diceNodes = boardNode.querySelectorAll(".die");
+      diceNodes.forEach((node) => {
+        node.classList.remove("rolling");
+        void node.offsetWidth;
+        node.classList.add("rolling");
+      });
+      await playDiceSound();
+      await sleep(720);
+      diceNodes.forEach((node) => node.classList.remove("rolling"));
+    };
+
+    const animatePlayerMovement = async (playerIdValue, fromPosition, steps) => {
+      if (!state || !steps) return;
+      isAnimatingMovement = true;
+      movingPlayerId = playerIdValue;
+
+      for (let offset = 1; offset <= steps; offset += 1) {
+        displayPositions[playerIdValue] = (fromPosition + offset) % state.board.length;
+        renderBoard();
+        await playStepSound();
+        await sleep(180);
+      }
+
+      movingPlayerId = null;
+      isAnimatingMovement = false;
+      syncDisplayPositions(state.players);
+      renderBoard();
+    };
+
     const api = async (url, options = {}) => {
       const response = await fetch(url, {
         headers: { "Content-Type": "application/json" },
@@ -744,13 +940,41 @@
         if (message.payload?.message) {
           log(message.payload.message);
         }
-        if (message.state) {
-          state = message.state;
-          renderState();
-        }
         if (message.type === "dice_result" && message.payload?.dice) {
           const dice = message.payload.dice;
+          pendingDiceAnimation = {
+            playerId: message.payload.player_id,
+            steps: dice.total,
+          };
+          animateDice(dice.first, dice.second);
           log(`Кубики: ${dice.first} + ${dice.second} = ${dice.total}`);
+        }
+        if (message.state) {
+          const previousPositions = state ? getPositionsMap(state.players) : {};
+          state = message.state;
+
+          if (!Object.keys(displayPositions).length) {
+            syncDisplayPositions(state.players);
+          }
+
+          renderState();
+
+          if (
+            pendingDiceAnimation &&
+            !isAnimatingMovement &&
+            previousPositions[pendingDiceAnimation.playerId] !== undefined
+          ) {
+            const currentPosition = state.players.find((player) => player.id === pendingDiceAnimation.playerId)?.position;
+            const fromPosition = previousPositions[pendingDiceAnimation.playerId];
+            if (currentPosition !== undefined && currentPosition !== fromPosition) {
+              const animation = pendingDiceAnimation;
+              pendingDiceAnimation = null;
+              animatePlayerMovement(animation.playerId, fromPosition, animation.steps);
+            }
+          } else if (!isAnimatingMovement) {
+            syncDisplayPositions(state.players);
+            renderBoard();
+          }
         }
       };
       ws.onclose = () => log("WebSocket отключён");
@@ -758,7 +982,9 @@
 
     const renderState = () => {
       if (!state) return;
-      stateNode.textContent = JSON.stringify(state, null, 2);
+      if (!Object.keys(displayPositions).length) {
+        syncDisplayPositions(state.players);
+      }
       sessionNode.textContent = `игра=${state.id} игрок=${playerId || "-"} фаза=${phaseLabels[state.phase] || state.phase} раунд=${state.round}`;
       renderControls();
       renderLobbyStatus();
@@ -795,8 +1021,13 @@
       const centerNode = document.createElement("div");
       centerNode.className = "board-center";
       centerNode.innerHTML = `
-        <div>
+        <div class="center-stage">
+          <div class="dice-stage">
+            <div class="die">${diceFaces[0]}</div>
+            <div class="die">${diceFaces[1]}</div>
+          </div>
           <strong>Deupoly</strong>
+          <div class="dice-total">Сумма кубиков: ${diceFaces[0] + diceFaces[1]}</div>
           <div class="meta">Раунд: ${state.round}</div>
           <div class="meta">Фаза: ${phaseLabels[state.phase] || state.phase}</div>
           <div class="meta">Текущий ход: ${state.players[state.current_turn]?.name || "-"}</div>
@@ -806,7 +1037,7 @@
       boardNode.appendChild(centerNode);
 
       state.board.forEach((tile) => {
-        const owners = state.players.filter((player) => player.position === tile.id);
+        const owners = state.players.filter((player) => (displayPositions[player.id] ?? player.position) === tile.id);
         const tileNode = document.createElement("div");
         const [row, column] = boardPositions[tile.id];
         const isCorner = [0, 10, 20, 30].includes(tile.id);
@@ -818,9 +1049,9 @@
           <small>${tileTypeLabels[tile.type] || tile.type}</small>
           <small>Цена: ${tile.price} | Аренда: ${tile.base_rent}</small>
           <small>Владелец: ${tile.owner_id || "-"}</small>
-          <small>Игроки:</small>
-          <div>
-            ${owners.map((player) => `<span class="player-chip" style="--player-color: ${getPlayerColor(player.id)}">${player.name}</span>`).join("") || "<span class='meta'>-</span>"}
+          <small>Фишки:</small>
+          <div class="token-row">
+            ${owners.map((player) => `<span class="token ${movingPlayerId === player.id ? "moving" : ""}" title="${player.name}" style="--player-color: ${getPlayerColor(player.id)}"></span>`).join("") || "<span class='meta'>-</span>"}
           </div>
         `;
         boardNode.appendChild(tileNode);
@@ -832,6 +1063,7 @@
         log("WebSocket не подключён");
         return;
       }
+      ensureAudioContext();
       ws.send(JSON.stringify({ action, payload }));
     };
 
@@ -843,6 +1075,7 @@
         });
         gameId = data.game_id;
         state = data.state;
+        syncDisplayPositions(state.players);
         gameIdInput.value = gameId;
         renderState();
         log(`Создана игра ${gameId}`);
@@ -864,6 +1097,7 @@
         });
         playerId = data.player.id;
         state = data.state;
+        syncDisplayPositions(state.players);
         renderState();
         connectWs();
         log(`Подключение к игре как ${data.player.name}`);
