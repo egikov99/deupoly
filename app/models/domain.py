@@ -48,6 +48,12 @@ class LoanOfferStatus(str, Enum):
     REJECTED = "rejected"
 
 
+class TradeOfferStatus(str, Enum):
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
+
+
 class DiceResult(BaseModel):
     first: int
     second: int
@@ -79,6 +85,17 @@ class LoanOffer(BaseModel):
     term_turns: int = 10
     collateral_tile_ids: list[int] = Field(default_factory=list)
     status: LoanOfferStatus = LoanOfferStatus.PENDING
+
+
+class TradeOffer(BaseModel):
+    id: str
+    initiator_id: str
+    recipient_id: str
+    seller_id: str
+    buyer_id: str
+    tile_id: int
+    price: int
+    status: TradeOfferStatus = TradeOfferStatus.PENDING
 
 
 class Player(BaseModel):
@@ -142,6 +159,7 @@ class GameState(BaseModel):
     events_deck: list[EventCard] = Field(default_factory=list)
     auction: Optional[Auction] = None
     loan_offers: list[LoanOffer] = Field(default_factory=list)
+    trade_offers: list[TradeOffer] = Field(default_factory=list)
     pending_tile_id: Optional[int] = None
     pending_tile_optional: bool = False
     last_event: Optional[str] = None

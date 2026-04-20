@@ -128,6 +128,23 @@ def test_bank_loan_can_be_repaid_early_with_reduced_interest() -> None:
     assert player.loans == []
 
 
+def test_bank_loan_can_only_be_taken_on_player_turn() -> None:
+    engine = GameEngine(game_id="game-bank-turn")
+    current = engine.add_player("Alice")
+    other = engine.add_player("Bob")
+    engine.game.phase = GamePhase.WAITING_FOR_ACTION
+    engine.game.round = 1
+    engine.game.current_turn = 0
+
+    with pytest.raises(InvalidActionError, match="только в свой ход"):
+        engine.process_action(other.id, ClientAction.TAKE_BANK_LOAN, {"amount": 100})
+
+    engine.process_action(current.id, ClientAction.TAKE_BANK_LOAN, {"amount": 100})
+
+    assert current.money == 1600
+    assert len(current.loans) == 1
+
+
 def test_bank_loan_overdue_extends_once_then_bankrupts_player() -> None:
     engine = GameEngine(game_id="game-bank-overdue")
     player = engine.add_player("Alice")
@@ -226,3 +243,112 @@ def test_player_loan_rejects_missing_foreign_or_pledged_collateral() -> None:
             ClientAction.PROPOSE_PLAYER_LOAN,
             {"lender_id": lender.id, "amount": 100, "collateral_tile_ids": [1]},
         )
+
+
+def test_trade_buy_offer_transfers_asset_when_owner_accepts() -> None:
+    engine = GameEngine(game_id="game-trade-buy")
+    buyer = engine.add_player("Alice")
+    seller = engine.add_player("Bob")
+    engine.game.phase = GamePhase.WAITING_FOR_ACTION
+    engine.game.round = 1
+    engine.game.current_turn = 0
+    engine.game.board[1].owner_id = seller.id
+    engine._refresh_player_assets()
+
+    engine.process_action(
+        buyer.id,
+        ClientAction.PROPOSE_TRADE,
+        {"direction": "buy", "recipient_id": seller.id, "tile_id": 1, "price": 250},
+    )
+    offer = engine.game.trade_offers[0]
+    engine.process_action(seller.id, ClientAction.ACCEPT_TRADE, {"offer_id": offer.id})
+
+    assert engine.game.board[1].owner_id == buyer.id
+    assert buyer.money == 1250
+    assert seller.money == 1750
+    assert engine.game.trade_offers == []
+
+
+def test_trade_sell_offer_transfers_asset_when_buyer_accepts() -> None:
+    engine = GameEngine(game_id="game-trade-sell")
+    seller = engine.add_player("Alice")
+    buyer = engine.add_player("Bob")
+    engine.game.phase = GamePhase.WAITING_FOR_ACTION
+    engine.game.round = 1
+    engine.game.current_turn = 0
+    engine.game.board[1].owner_id = seller.id
+    engine._refresh_player_assets()
+
+    engine.process_action(
+        seller.id,
+        ClientAction.PROPOSE_TRADE,
+        {"direction": "sell", "recipient_id": buyer.id, "tile_id": 1, "price": 220},
+    )
+    offer = engine.game.trade_offers[0]
+    engine.process_action(buyer.id, ClientAction.ACCEPT_TRADE, {"offer_id": offer.id})
+
+    assert engine.game.board[1].owner_id == buyer.id
+    assert seller.money == 1720
+    assert buyer.money == 1280
+
+
+def test_trade_can_only_be_initiated_on_current_turn_and_not_for_pledged_asset() -> None:
+    engine = GameEngine(game_id="game-trade-validation")
+    current = engine.add_player("Alice")
+    other = engine.add_player("Bob")
+    engine.game.phase = GamePhase.WAITING_FOR_ACTION
+    engine.game.round = 1
+    engine.game.current_turn = 0
+    engine.game.board[1].owner_id = current.id
+    engine._refresh_player_assets()
+
+    with pytest.raises(InvalidActionError, match="только в свой ход"):
+        engine.process_action(
+            other.id,
+            ClientAction.PROPOSE_TRADE,
+            {"direction": "buy", "recipient_id": current.id, "tile_id": 1, "price": 100},
+        )
+
+    engine.process_action(
+        current.id,
+        ClientAction.PROPOSE_PLAYER_LOAN,
+        {"lender_id": other.id, "amount": 100, "collateral_tile_ids": [1]},
+    )
+
+    with pytest.raises(InvalidActionError, match="залог или в другой сделке"):
+        engine.process_action(
+            current.id,
+            ClientAction.PROPOSE_TRADE,
+            {"direction": "sell", "recipient_id": other.id, "tile_id": 1, "price": 100},
+        )
+
+
+def test_turn_end_expires_current_player_loan_and_trade_offers() -> None:
+    engine = GameEngine(game_id="game-offer-expiration")
+    current = engine.add_player("Alice")
+    other = engine.add_player("Bob")
+    engine.game.phase = GamePhase.WAITING_FOR_ACTION
+    engine.game.round = 1
+    engine.game.current_turn = 0
+    engine.game.board[1].owner_id = current.id
+    engine.game.board[3].owner_id = other.id
+    engine._refresh_player_assets()
+
+    engine.process_action(
+        current.id,
+        ClientAction.PROPOSE_TRADE,
+        {"direction": "buy", "recipient_id": other.id, "tile_id": 3, "price": 100},
+    )
+    engine.process_action(
+        current.id,
+        ClientAction.PROPOSE_PLAYER_LOAN,
+        {"lender_id": other.id, "amount": 100, "collateral_tile_ids": [1]},
+    )
+
+    assert len(engine.game.trade_offers) == 1
+    assert len(engine.game.loan_offers) == 1
+
+    engine.process_action(current.id, ClientAction.END_TURN)
+
+    assert engine.game.trade_offers == []
+    assert engine.game.loan_offers == []

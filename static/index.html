@@ -462,6 +462,85 @@
       gap: 10px;
     }
 
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 50;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      background: rgba(16, 21, 27, 0.48);
+      backdrop-filter: blur(8px);
+    }
+
+    .game-modal {
+      width: min(960px, 100%);
+      max-height: min(860px, calc(100vh - 48px));
+      overflow: auto;
+      border: 1px solid rgba(255, 255, 255, 0.34);
+      border-radius: 22px;
+      padding: 18px;
+      background:
+        radial-gradient(circle at top left, rgba(254, 215, 170, 0.68), transparent 34%),
+        linear-gradient(135deg, rgba(255, 252, 244, 0.98), rgba(255, 248, 232, 0.96));
+      box-shadow: 0 28px 80px rgba(0, 0, 0, 0.28);
+    }
+
+    .modal-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: flex-start;
+      margin-bottom: 14px;
+    }
+
+    .modal-head h2 {
+      margin: 0 0 4px;
+    }
+
+    .modal-close {
+      width: auto;
+      min-width: 110px;
+    }
+
+    .modal-tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+
+    .modal-tabs button {
+      width: auto;
+      min-width: 150px;
+      background: #243b53;
+    }
+
+    .modal-tabs button.active {
+      background: var(--accent);
+    }
+
+    .modal-content {
+      display: grid;
+      gap: 12px;
+    }
+
+    .modal-panel {
+      border: 1px solid rgba(28, 29, 33, 0.08);
+      border-radius: 16px;
+      padding: 12px;
+      background: rgba(255, 255, 255, 0.72);
+      display: grid;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .modal-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
     .finance-row {
       display: grid;
       grid-template-columns: 1fr auto;
@@ -509,6 +588,11 @@
     .collateral-option input {
       width: auto;
       padding: 0;
+    }
+
+    .trade-form {
+      display: grid;
+      gap: 8px;
     }
 
     .video-controls {
@@ -807,7 +891,8 @@
 
       .center-players-grid,
       .center-status-grid,
-      .video-grid {
+      .video-grid,
+      .modal-grid {
         grid-template-columns: 1fr;
       }
 
@@ -972,6 +1057,7 @@
         <button id="place-bid" class="hidden">Сделать ставку</button>
         <button id="pass-auction" class="warn hidden">Пас</button>
         <button id="leave-jail" class="secondary hidden">Заплатить 50 и выйти</button>
+        <button id="open-finance-modal" class="secondary hidden">Финансы и сделки</button>
         <button id="end-turn" class="hidden">Завершить ход</button>
       </div>
 
@@ -1003,6 +1089,23 @@
         <button id="back-to-tables" class="secondary">К столам</button>
       </div>
     </section>
+  </div>
+
+  <div id="game-modal-backdrop" class="modal-backdrop hidden">
+    <div class="game-modal">
+      <div class="modal-head">
+        <div>
+          <h2>Финансы и сделки</h2>
+          <div id="game-modal-subtitle" class="meta">Кредиты, займы и торговля активами</div>
+        </div>
+        <button id="close-game-modal" class="secondary modal-close">Закрыть</button>
+      </div>
+      <div class="modal-tabs">
+        <button data-modal-tab="finance" class="active">Кредиты и займы</button>
+        <button data-modal-tab="trade">Сделки активами</button>
+      </div>
+      <div id="game-modal-content" class="modal-content"></div>
+    </div>
   </div>
 
   <script>
@@ -1057,6 +1160,10 @@
     const gameSectionNode = document.getElementById("game-section");
     const startGameButton = document.getElementById("start-game");
     const backToTablesButton = document.getElementById("back-to-tables");
+    const openFinanceModalButton = document.getElementById("open-finance-modal");
+    const gameModalBackdropNode = document.getElementById("game-modal-backdrop");
+    const gameModalSubtitleNode = document.getElementById("game-modal-subtitle");
+    const gameModalContentNode = document.getElementById("game-modal-content");
     const actionButtons = {
       roll_dice: document.getElementById("roll-dice"),
       buy_property: document.getElementById("buy-property"),
@@ -1081,6 +1188,7 @@
     let isAnimatingMovement = false;
     let movingPlayerId = null;
     let diceFaces = [1, 1];
+    let activeModalTab = "finance";
     let audioContext = null;
     let videoConfig = null;
     let videoCallActive = false;
@@ -1221,6 +1329,7 @@
       isAnimatingMovement = false;
       movingPlayerId = null;
       diceFaces = [1, 1];
+      closeFinanceModal();
       renderControls();
       playersNode.innerHTML = "";
       boardNode.innerHTML = "";
@@ -1231,6 +1340,7 @@
     const getPositionsMap = (players) => Object.fromEntries(players.map((player) => [player.id, player.position]));
     const getTileById = (tileId) => state?.board?.find((tile) => tile.id === tileId) || null;
     const getTileNameById = (tileId) => getTileById(tileId)?.name || "-";
+    const isPurchasableTile = (tile) => ["property", "transport"].includes(tile?.type);
     const getPlayerById = (playerIdValue) => state?.players?.find((player) => player.id === playerIdValue) || null;
     const getPlayerNameById = (playerIdValue) => getPlayerById(playerIdValue)?.name || "-";
     const getGroupColor = (groupId) => groupColors[groupId] || "#cbd5e1";
@@ -1257,6 +1367,23 @@
       player_name: getLocalPlayer()?.name || currentUser?.username || "Вы",
     });
     const getParticipantDisplayName = (participant) => participant?.player_name || participant?.username || "Игрок";
+    const isCurrentTurnActionWindow = () => {
+      const currentPlayer = getCurrentPlayer();
+      return Boolean(
+        state &&
+        playerId &&
+        currentPlayer?.id === playerId &&
+        ["waiting_for_roll", "waiting_for_action"].includes(state.phase)
+      );
+    };
+    const isInitiatorTurnWindow = (initiatorId) => {
+      const currentPlayer = getCurrentPlayer();
+      return Boolean(
+        state &&
+        currentPlayer?.id === initiatorId &&
+        ["waiting_for_roll", "waiting_for_action"].includes(state.phase)
+      );
+    };
     const getLoanPayment = (loan) => {
       if (loan.overdue_applied) {
         return Math.floor(loan.amount * (1 + loan.interest) * 1.5);
@@ -1276,7 +1403,7 @@
       if (loan.collateral_tile_id !== null && loan.collateral_tile_id !== undefined) return [loan.collateral_tile_id];
       return [];
     };
-    const getPledgedTileIds = () => {
+    const getReservedTileIds = () => {
       const pledged = new Set();
       state?.players?.forEach((player) => {
         player.loans.forEach((loan) => {
@@ -1288,6 +1415,11 @@
           offer.collateral_tile_ids.forEach((tileId) => pledged.add(tileId));
         }
       });
+      state?.trade_offers?.forEach((offer) => {
+        if (offer.status === "pending") {
+          pledged.add(offer.tile_id);
+        }
+      });
       return pledged;
     };
     const renderFinancePanelMarkup = () => {
@@ -1295,22 +1427,27 @@
       if (!localPlayer) {
         return "";
       }
+      const canInitiate = isCurrentTurnActionWindow();
       const otherPlayers = state.players.filter((player) => player.id !== localPlayer.id && player.is_active);
-      const pledgedTileIds = getPledgedTileIds();
+      const reservedTileIds = getReservedTileIds();
       const availableCollateral = localPlayer.properties
         .map((tileId) => getTileById(tileId))
-        .filter((tile) => tile && !pledgedTileIds.has(tile.id));
+        .filter((tile) => tile && !reservedTileIds.has(tile.id));
       const loansMarkup = localPlayer.loans.length
         ? localPlayer.loans.map((loan) => `
           <div class="loan-card">
             <strong>${getLoanLabel(loan)}: ${loan.amount}</strong>
             <div class="meta">К оплате сейчас: ${getLoanPayment(loan)} | Осталось ходов: ${loan.remaining_turns}</div>
             <div class="meta">Залог: ${getLoanCollateralIds(loan).map((tileId) => getTileNameById(tileId)).join(", ") || "-"}</div>
-            <button data-finance-action="repay-loan" data-loan-id="${loan.id}" ${localPlayer.money >= getLoanPayment(loan) ? "" : "disabled"}>Погасить</button>
+            <button data-finance-action="repay-loan" data-loan-id="${loan.id}" ${canInitiate && localPlayer.money >= getLoanPayment(loan) ? "" : "disabled"}>Погасить</button>
           </div>
         `).join("")
         : `<div class="meta">Активных кредитов и займов нет.</div>`;
-      const incomingOffers = (state.loan_offers || []).filter((offer) => offer.lender_id === localPlayer.id && offer.status === "pending");
+      const incomingOffers = (state.loan_offers || []).filter((offer) =>
+        offer.lender_id === localPlayer.id &&
+        offer.status === "pending" &&
+        isInitiatorTurnWindow(offer.borrower_id)
+      );
       const outgoingOffers = (state.loan_offers || []).filter((offer) => offer.borrower_id === localPlayer.id && offer.status === "pending");
       const incomingMarkup = incomingOffers.map((offer) => {
         const borrower = getPlayerById(offer.borrower_id);
@@ -1341,31 +1478,192 @@
         `).join("")
         : `<span class="meta">Нет свободных активов для залога.</span>`;
       return `
-        <div class="center-panel finance-panel">
-          <div class="center-head">
-            <h3>Кредиты и займы</h3>
-            <div class="meta">банк 15% / игроки 10%</div>
-          </div>
-          <div class="finance-row">
-            <input id="bank-loan-amount" type="number" min="1" placeholder="Сумма кредита банка" />
-            <button data-finance-action="take-bank-loan">Взять кредит</button>
-          </div>
-          <div class="loan-list">${loansMarkup}</div>
-          <div class="loan-card">
-            <strong>Запросить займ у игрока</strong>
-            <div class="finance-row">
-              <select id="player-loan-lender" ${otherPlayers.length ? "" : "disabled"}>
-                ${otherPlayers.map((player) => `<option value="${player.id}">${player.name}</option>`).join("")}
-              </select>
-              <input id="player-loan-amount" type="number" min="1" placeholder="Сумма" />
+        <div class="modal-grid">
+          <div class="modal-panel finance-panel">
+            <div class="center-head">
+              <h3>Банк</h3>
+              <div class="meta">15% за 10 ходов</div>
             </div>
-            <div class="collateral-list">${collateralMarkup}</div>
-            <button data-finance-action="propose-player-loan" ${otherPlayers.length && availableCollateral.length ? "" : "disabled"}>Отправить заявку</button>
+            ${canInitiate ? `
+              <div class="finance-row">
+                <input id="bank-loan-amount" type="number" min="1" placeholder="Сумма кредита банка" />
+                <button data-finance-action="take-bank-loan">Взять кредит</button>
+              </div>
+            ` : `<div class="hint">Кредиты и погашение доступны только в ваш ход.</div>`}
+            <div class="loan-list">${loansMarkup}</div>
           </div>
-          ${incomingMarkup ? `<div class="loan-list"><strong>Входящие заявки</strong>${incomingMarkup}</div>` : ""}
-          ${outgoingMarkup ? `<div class="loan-list"><strong>Ваши заявки</strong>${outgoingMarkup}</div>` : ""}
+          <div class="modal-panel finance-panel">
+            <div class="center-head">
+              <h3>Займ у игрока</h3>
+              <div class="meta">10% и обязательный залог</div>
+            </div>
+            ${canInitiate ? `
+              <div class="loan-card">
+                <strong>Запросить займ</strong>
+                <div class="finance-row">
+                  <select id="player-loan-lender" ${otherPlayers.length ? "" : "disabled"}>
+                    ${otherPlayers.map((player) => `<option value="${player.id}">${player.name}</option>`).join("")}
+                  </select>
+                  <input id="player-loan-amount" type="number" min="1" placeholder="Сумма" />
+                </div>
+                <div class="collateral-list">${collateralMarkup}</div>
+                <button data-finance-action="propose-player-loan" ${otherPlayers.length && availableCollateral.length ? "" : "disabled"}>Отправить заявку</button>
+              </div>
+            ` : `<div class="hint">Запросить займ можно только в ваш ход.</div>`}
+            ${incomingMarkup ? `<div class="loan-list"><strong>Входящие заявки</strong>${incomingMarkup}</div>` : ""}
+            ${outgoingMarkup ? `<div class="loan-list"><strong>Ваши заявки</strong>${outgoingMarkup}</div>` : ""}
+          </div>
         </div>
       `;
+    };
+    const getTradeDirectionLabel = (offer) => {
+      if (offer.buyer_id === offer.initiator_id) return "Покупка";
+      return "Продажа";
+    };
+    const renderTradePanelMarkup = () => {
+      const localPlayer = getLocalPlayer();
+      if (!localPlayer) {
+        return "";
+      }
+      const canInitiate = isCurrentTurnActionWindow();
+      const reservedTileIds = getReservedTileIds();
+      const otherPlayers = state.players.filter((player) => player.id !== localPlayer.id && player.is_active);
+      const ownTradableTiles = localPlayer.properties
+        .map((tileId) => getTileById(tileId))
+        .filter((tile) => tile && isPurchasableTile(tile) && !reservedTileIds.has(tile.id));
+      const foreignTradableTiles = state.board.filter((tile) =>
+        isPurchasableTile(tile) &&
+        tile.owner_id &&
+        tile.owner_id !== localPlayer.id &&
+        !reservedTileIds.has(tile.id) &&
+        getPlayerById(tile.owner_id)?.is_active
+      );
+      const incomingTrades = (state.trade_offers || []).filter((offer) =>
+        offer.recipient_id === localPlayer.id &&
+        offer.status === "pending" &&
+        isInitiatorTurnWindow(offer.initiator_id)
+      );
+      const outgoingTrades = (state.trade_offers || []).filter((offer) =>
+        offer.initiator_id === localPlayer.id &&
+        offer.status === "pending"
+      );
+      const incomingMarkup = incomingTrades.map((offer) => {
+        const tile = getTileById(offer.tile_id);
+        const initiator = getPlayerById(offer.initiator_id);
+        const buyer = getPlayerById(offer.buyer_id);
+        const seller = getPlayerById(offer.seller_id);
+        const localIsBuyer = offer.buyer_id === localPlayer.id;
+        const canAccept = !localIsBuyer || localPlayer.money >= offer.price;
+        return `
+          <div class="loan-card">
+            <strong>${getTradeDirectionLabel(offer)}: ${tile?.name || "актив"} за ${offer.price}</strong>
+            <div class="meta">Инициатор: ${initiator?.name || "-"} | Продавец: ${seller?.name || "-"} | Покупатель: ${buyer?.name || "-"}</div>
+            <div class="inline-stack">
+              <button data-trade-action="accept-trade" data-offer-id="${offer.id}" ${canAccept ? "" : "disabled"}>Принять</button>
+              <button class="warn" data-trade-action="reject-trade" data-offer-id="${offer.id}">Отклонить</button>
+            </div>
+          </div>
+        `;
+      }).join("");
+      const outgoingMarkup = outgoingTrades.map((offer) => {
+        const tile = getTileById(offer.tile_id);
+        const recipient = getPlayerById(offer.recipient_id);
+        return `
+          <div class="loan-card">
+            <strong>${getTradeDirectionLabel(offer)}: ${tile?.name || "актив"} за ${offer.price}</strong>
+            <div class="meta">Адресат: ${recipient?.name || "-"}</div>
+            <button class="warn" data-trade-action="reject-trade" data-offer-id="${offer.id}">Отменить</button>
+          </div>
+        `;
+      }).join("");
+      return `
+        <div class="modal-grid">
+          <div class="modal-panel">
+            <div class="center-head">
+              <h3>Купить актив</h3>
+              <div class="meta">предложение владельцу</div>
+            </div>
+            ${canInitiate ? `
+              <div class="trade-form">
+                <select id="trade-buy-tile" ${foreignTradableTiles.length ? "" : "disabled"}>
+                  ${foreignTradableTiles.map((tile) => `
+                    <option value="${tile.id}" data-owner-id="${tile.owner_id}">
+                      ${tile.name} — владелец ${getPlayerNameById(tile.owner_id)}
+                    </option>
+                  `).join("")}
+                </select>
+                <input id="trade-buy-price" type="number" min="1" placeholder="Ваша цена" />
+                <button data-trade-action="propose-buy" ${foreignTradableTiles.length ? "" : "disabled"}>Предложить покупку</button>
+              </div>
+            ` : `<div class="hint">Покупку актива можно предложить только в ваш ход.</div>`}
+          </div>
+          <div class="modal-panel">
+            <div class="center-head">
+              <h3>Продать актив</h3>
+              <div class="meta">предложение покупателю</div>
+            </div>
+            ${canInitiate ? `
+              <div class="trade-form">
+                <select id="trade-sell-buyer" ${otherPlayers.length ? "" : "disabled"}>
+                  ${otherPlayers.map((player) => `<option value="${player.id}">${player.name}</option>`).join("")}
+                </select>
+                <select id="trade-sell-tile" ${ownTradableTiles.length ? "" : "disabled"}>
+                  ${ownTradableTiles.map((tile) => `<option value="${tile.id}">${tile.name}</option>`).join("")}
+                </select>
+                <input id="trade-sell-price" type="number" min="1" placeholder="Цена продажи" />
+                <button data-trade-action="propose-sell" ${otherPlayers.length && ownTradableTiles.length ? "" : "disabled"}>Предложить продажу</button>
+              </div>
+            ` : `<div class="hint">Продажу актива можно предложить только в ваш ход.</div>`}
+          </div>
+        </div>
+        <div class="modal-grid">
+          <div class="modal-panel">
+            <div class="center-head">
+              <h3>Входящие сделки</h3>
+              <div class="meta">${incomingTrades.length}</div>
+            </div>
+            <div class="loan-list">${incomingMarkup || "<span class='meta'>Нет входящих сделок.</span>"}</div>
+          </div>
+          <div class="modal-panel">
+            <div class="center-head">
+              <h3>Ваши предложения</h3>
+              <div class="meta">${outgoingTrades.length}</div>
+            </div>
+            <div class="loan-list">${outgoingMarkup || "<span class='meta'>Нет исходящих сделок.</span>"}</div>
+          </div>
+        </div>
+      `;
+    };
+    const renderFinanceModal = () => {
+      if (gameModalBackdropNode.classList.contains("hidden")) return;
+      const canInitiate = isCurrentTurnActionWindow();
+      const incomingLoansCount = (state?.loan_offers || []).filter((offer) =>
+        offer.lender_id === playerId &&
+        offer.status === "pending" &&
+        isInitiatorTurnWindow(offer.borrower_id)
+      ).length;
+      const incomingTradesCount = (state?.trade_offers || []).filter((offer) =>
+        offer.recipient_id === playerId &&
+        offer.status === "pending" &&
+        isInitiatorTurnWindow(offer.initiator_id)
+      ).length;
+      gameModalSubtitleNode.textContent = canInitiate
+        ? "Сейчас ваш ход: можно брать кредиты, запрашивать займы и предлагать сделки."
+        : `Можно ответить на входящие заявки: ${incomingLoansCount + incomingTradesCount}.`;
+      gameModalContentNode.innerHTML = activeModalTab === "trade"
+        ? renderTradePanelMarkup()
+        : renderFinancePanelMarkup();
+      document.querySelectorAll("[data-modal-tab]").forEach((button) => {
+        button.classList.toggle("active", button.dataset.modalTab === activeModalTab);
+      });
+    };
+    const openFinanceModal = (tab = "finance") => {
+      activeModalTab = tab;
+      setHidden(gameModalBackdropNode, false);
+      renderFinanceModal();
+    };
+    const closeFinanceModal = () => {
+      setHidden(gameModalBackdropNode, true);
     };
     const getVideoStatusText = () => {
       if (!videoCallActive) return "Видеозвонок выключен";
@@ -1722,6 +2020,22 @@
         .join("");
     };
 
+    const hasActionableModalItems = () => {
+      if (!state || !playerId || state.phase === "finished") return false;
+      if (isCurrentTurnActionWindow()) return true;
+      const incomingLoan = (state.loan_offers || []).some((offer) =>
+        offer.lender_id === playerId &&
+        offer.status === "pending" &&
+        isInitiatorTurnWindow(offer.borrower_id)
+      );
+      const incomingTrade = (state.trade_offers || []).some((offer) =>
+        offer.recipient_id === playerId &&
+        offer.status === "pending" &&
+        isInitiatorTurnWindow(offer.initiator_id)
+      );
+      return incomingLoan || incomingTrade;
+    };
+
     const renderControls = () => {
       const isAuthenticated = Boolean(currentUser);
       const hasState = Boolean(state);
@@ -1761,6 +2075,8 @@
       setHidden(startGameButton, !state || !isJoined);
       setHidden(document.getElementById("create-game"), isJoined);
       setHidden(document.getElementById("join-game"), isJoined);
+      setHidden(openFinanceModalButton, !inStartedGame || !isJoined || !hasActionableModalItems());
+      openFinanceModalButton.disabled = !inStartedGame || !isJoined || !hasActionableModalItems();
 
       Object.entries(actionButtons).forEach(([action, button]) => {
         const isVisible = availableActions.has(action);
@@ -2065,6 +2381,7 @@
       renderStatusBar();
       renderPlayers();
       renderBoard();
+      renderFinanceModal();
       if (state.last_event) {
         log(`Состояние: ${state.last_event}`);
       }
@@ -2167,7 +2484,6 @@
                 </div>
               </div>
             </div>
-            ${renderFinancePanelMarkup()}
           </div>
           <div class="center-secondary">
             ${renderVideoPanelMarkup()}
@@ -2201,7 +2517,7 @@
         if (tile.group_id) {
           tileNode.style.setProperty("--group-color", getGroupColor(tile.group_id));
         }
-        const tileValueLabel = tile.is_purchasable
+        const tileValueLabel = isPurchasableTile(tile)
           ? (tile.owner_id ? `Аренда: ${tile.base_rent}` : `Цена: ${tile.price}`)
           : "";
         tileNode.innerHTML = `
@@ -2450,8 +2766,21 @@
     document.getElementById("end-turn").onclick = () => sendAction("end_turn");
     document.getElementById("place-bid").onclick = () => sendAction("place_bid", { bid: Number(bidValueInput.value || 0) });
     document.getElementById("pass-auction").onclick = () => sendAction("pass_auction");
+    openFinanceModalButton.onclick = () => openFinanceModal("finance");
+    document.getElementById("close-game-modal").onclick = closeFinanceModal;
+    gameModalBackdropNode.onclick = (event) => {
+      if (event.target === gameModalBackdropNode) {
+        closeFinanceModal();
+      }
+    };
+    document.querySelectorAll("[data-modal-tab]").forEach((button) => {
+      button.onclick = () => {
+        activeModalTab = button.dataset.modalTab;
+        renderFinanceModal();
+      };
+    });
 
-    boardNode.onclick = async (event) => {
+    gameModalContentNode.onclick = (event) => {
       const financeButton = event.target.closest("[data-finance-action]");
       if (financeButton) {
         const action = financeButton.dataset.financeAction;
@@ -2468,7 +2797,7 @@
           if (action === "propose-player-loan") {
             const amount = Number(document.getElementById("player-loan-amount")?.value || 0);
             const lenderId = document.getElementById("player-loan-lender")?.value;
-            const collateralTileIds = Array.from(boardNode.querySelectorAll(".finance-collateral:checked"))
+            const collateralTileIds = Array.from(gameModalContentNode.querySelectorAll(".finance-collateral:checked"))
               .map((input) => Number(input.value));
             sendAction("propose_player_loan", {
               lender_id: lenderId,
@@ -2490,6 +2819,44 @@
         return;
       }
 
+      const tradeButton = event.target.closest("[data-trade-action]");
+      if (tradeButton) {
+        const action = tradeButton.dataset.tradeAction;
+        try {
+          if (action === "propose-buy") {
+            const tileSelect = document.getElementById("trade-buy-tile");
+            const selectedOption = tileSelect?.selectedOptions?.[0];
+            sendAction("propose_trade", {
+              direction: "buy",
+              recipient_id: selectedOption?.dataset.ownerId,
+              tile_id: Number(tileSelect?.value || 0),
+              price: Number(document.getElementById("trade-buy-price")?.value || 0),
+            });
+            return;
+          }
+          if (action === "propose-sell") {
+            sendAction("propose_trade", {
+              direction: "sell",
+              recipient_id: document.getElementById("trade-sell-buyer")?.value,
+              tile_id: Number(document.getElementById("trade-sell-tile")?.value || 0),
+              price: Number(document.getElementById("trade-sell-price")?.value || 0),
+            });
+            return;
+          }
+          if (action === "accept-trade") {
+            sendAction("accept_trade", { offer_id: tradeButton.dataset.offerId });
+            return;
+          }
+          if (action === "reject-trade") {
+            sendAction("reject_trade", { offer_id: tradeButton.dataset.offerId });
+          }
+        } catch (error) {
+          log(`Ошибка сделки: ${error.message}`);
+        }
+      }
+    };
+
+    boardNode.onclick = async (event) => {
       const videoButton = event.target.closest("[data-video-action]");
       if (!videoButton) return;
       const action = videoButton.dataset.videoAction;

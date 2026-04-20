@@ -21,6 +21,9 @@ class ClientAction(str, Enum):
     PROPOSE_PLAYER_LOAN = "propose_player_loan"
     ACCEPT_PLAYER_LOAN = "accept_player_loan"
     REJECT_PLAYER_LOAN = "reject_player_loan"
+    PROPOSE_TRADE = "propose_trade"
+    ACCEPT_TRADE = "accept_trade"
+    REJECT_TRADE = "reject_trade"
 
 
 class ServerEventType(str, Enum):
