@@ -457,6 +457,60 @@
       gap: 10px;
     }
 
+    .finance-panel {
+      display: grid;
+      gap: 10px;
+    }
+
+    .finance-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .finance-row button,
+    .loan-card button {
+      width: auto;
+      min-width: 120px;
+    }
+
+    .loan-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .loan-card {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 10px;
+      background: rgba(255, 255, 255, 0.84);
+      display: grid;
+      gap: 8px;
+    }
+
+    .collateral-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .collateral-option {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.78);
+      font-size: 12px;
+    }
+
+    .collateral-option input {
+      width: auto;
+      padding: 0;
+    }
+
     .video-controls {
       display: flex;
       flex-wrap: wrap;
@@ -1203,6 +1257,116 @@
       player_name: getLocalPlayer()?.name || currentUser?.username || "Вы",
     });
     const getParticipantDisplayName = (participant) => participant?.player_name || participant?.username || "Игрок";
+    const getLoanPayment = (loan) => {
+      if (loan.overdue_applied) {
+        return Math.floor(loan.amount * (1 + loan.interest) * 1.5);
+      }
+      const termTurns = loan.term_turns || 10;
+      const elapsedTurns = Math.max(0, termTurns - loan.remaining_turns);
+      const effectiveInterest = elapsedTurns >= termTurns
+        ? loan.interest
+        : loan.interest * (elapsedTurns / termTurns);
+      return Math.floor(loan.amount * (1 + effectiveInterest));
+    };
+    const getLoanLabel = (loan) => loan.lender_type === "bank"
+      ? "Банк"
+      : getPlayerNameById(loan.lender_id);
+    const getLoanCollateralIds = (loan) => {
+      if (loan.collateral_tile_ids?.length) return loan.collateral_tile_ids;
+      if (loan.collateral_tile_id !== null && loan.collateral_tile_id !== undefined) return [loan.collateral_tile_id];
+      return [];
+    };
+    const getPledgedTileIds = () => {
+      const pledged = new Set();
+      state?.players?.forEach((player) => {
+        player.loans.forEach((loan) => {
+          getLoanCollateralIds(loan).forEach((tileId) => pledged.add(tileId));
+        });
+      });
+      state?.loan_offers?.forEach((offer) => {
+        if (offer.status === "pending") {
+          offer.collateral_tile_ids.forEach((tileId) => pledged.add(tileId));
+        }
+      });
+      return pledged;
+    };
+    const renderFinancePanelMarkup = () => {
+      const localPlayer = getLocalPlayer();
+      if (!localPlayer) {
+        return "";
+      }
+      const otherPlayers = state.players.filter((player) => player.id !== localPlayer.id && player.is_active);
+      const pledgedTileIds = getPledgedTileIds();
+      const availableCollateral = localPlayer.properties
+        .map((tileId) => getTileById(tileId))
+        .filter((tile) => tile && !pledgedTileIds.has(tile.id));
+      const loansMarkup = localPlayer.loans.length
+        ? localPlayer.loans.map((loan) => `
+          <div class="loan-card">
+            <strong>${getLoanLabel(loan)}: ${loan.amount}</strong>
+            <div class="meta">К оплате сейчас: ${getLoanPayment(loan)} | Осталось ходов: ${loan.remaining_turns}</div>
+            <div class="meta">Залог: ${getLoanCollateralIds(loan).map((tileId) => getTileNameById(tileId)).join(", ") || "-"}</div>
+            <button data-finance-action="repay-loan" data-loan-id="${loan.id}" ${localPlayer.money >= getLoanPayment(loan) ? "" : "disabled"}>Погасить</button>
+          </div>
+        `).join("")
+        : `<div class="meta">Активных кредитов и займов нет.</div>`;
+      const incomingOffers = (state.loan_offers || []).filter((offer) => offer.lender_id === localPlayer.id && offer.status === "pending");
+      const outgoingOffers = (state.loan_offers || []).filter((offer) => offer.borrower_id === localPlayer.id && offer.status === "pending");
+      const incomingMarkup = incomingOffers.map((offer) => {
+        const borrower = getPlayerById(offer.borrower_id);
+        return `
+          <div class="loan-card">
+            <strong>${borrower?.name || "Игрок"} просит ${offer.amount}</strong>
+            <div class="meta">Возврат: ${Math.floor(offer.amount * 1.1)} | Залог: ${offer.collateral_tile_ids.map((tileId) => getTileNameById(tileId)).join(", ")}</div>
+            <div class="inline-stack">
+              <button data-finance-action="accept-player-loan" data-offer-id="${offer.id}" ${localPlayer.money >= offer.amount ? "" : "disabled"}>Выдать</button>
+              <button class="warn" data-finance-action="reject-player-loan" data-offer-id="${offer.id}">Отклонить</button>
+            </div>
+          </div>
+        `;
+      }).join("");
+      const outgoingMarkup = outgoingOffers.map((offer) => `
+        <div class="loan-card">
+          <strong>Заявка игроку ${getPlayerNameById(offer.lender_id)}: ${offer.amount}</strong>
+          <div class="meta">Залог: ${offer.collateral_tile_ids.map((tileId) => getTileNameById(tileId)).join(", ")}</div>
+          <button class="warn" data-finance-action="reject-player-loan" data-offer-id="${offer.id}">Отменить</button>
+        </div>
+      `).join("");
+      const collateralMarkup = availableCollateral.length
+        ? availableCollateral.map((tile) => `
+          <label class="collateral-option">
+            <input type="checkbox" class="finance-collateral" value="${tile.id}" />
+            ${tile.name}
+          </label>
+        `).join("")
+        : `<span class="meta">Нет свободных активов для залога.</span>`;
+      return `
+        <div class="center-panel finance-panel">
+          <div class="center-head">
+            <h3>Кредиты и займы</h3>
+            <div class="meta">банк 15% / игроки 10%</div>
+          </div>
+          <div class="finance-row">
+            <input id="bank-loan-amount" type="number" min="1" placeholder="Сумма кредита банка" />
+            <button data-finance-action="take-bank-loan">Взять кредит</button>
+          </div>
+          <div class="loan-list">${loansMarkup}</div>
+          <div class="loan-card">
+            <strong>Запросить займ у игрока</strong>
+            <div class="finance-row">
+              <select id="player-loan-lender" ${otherPlayers.length ? "" : "disabled"}>
+                ${otherPlayers.map((player) => `<option value="${player.id}">${player.name}</option>`).join("")}
+              </select>
+              <input id="player-loan-amount" type="number" min="1" placeholder="Сумма" />
+            </div>
+            <div class="collateral-list">${collateralMarkup}</div>
+            <button data-finance-action="propose-player-loan" ${otherPlayers.length && availableCollateral.length ? "" : "disabled"}>Отправить заявку</button>
+          </div>
+          ${incomingMarkup ? `<div class="loan-list"><strong>Входящие заявки</strong>${incomingMarkup}</div>` : ""}
+          ${outgoingMarkup ? `<div class="loan-list"><strong>Ваши заявки</strong>${outgoingMarkup}</div>` : ""}
+        </div>
+      `;
+    };
     const getVideoStatusText = () => {
       if (!videoCallActive) return "Видеозвонок выключен";
       const remoteCount = remoteStreams.size;
@@ -2003,6 +2167,7 @@
                 </div>
               </div>
             </div>
+            ${renderFinancePanelMarkup()}
           </div>
           <div class="center-secondary">
             ${renderVideoPanelMarkup()}
@@ -2287,9 +2452,47 @@
     document.getElementById("pass-auction").onclick = () => sendAction("pass_auction");
 
     boardNode.onclick = async (event) => {
-      const button = event.target.closest("[data-video-action]");
-      if (!button) return;
-      const action = button.dataset.videoAction;
+      const financeButton = event.target.closest("[data-finance-action]");
+      if (financeButton) {
+        const action = financeButton.dataset.financeAction;
+        try {
+          if (action === "take-bank-loan") {
+            const amount = Number(document.getElementById("bank-loan-amount")?.value || 0);
+            sendAction("take_bank_loan", { amount });
+            return;
+          }
+          if (action === "repay-loan") {
+            sendAction("repay_loan", { loan_id: financeButton.dataset.loanId });
+            return;
+          }
+          if (action === "propose-player-loan") {
+            const amount = Number(document.getElementById("player-loan-amount")?.value || 0);
+            const lenderId = document.getElementById("player-loan-lender")?.value;
+            const collateralTileIds = Array.from(boardNode.querySelectorAll(".finance-collateral:checked"))
+              .map((input) => Number(input.value));
+            sendAction("propose_player_loan", {
+              lender_id: lenderId,
+              amount,
+              collateral_tile_ids: collateralTileIds,
+            });
+            return;
+          }
+          if (action === "accept-player-loan") {
+            sendAction("accept_player_loan", { offer_id: financeButton.dataset.offerId });
+            return;
+          }
+          if (action === "reject-player-loan") {
+            sendAction("reject_player_loan", { offer_id: financeButton.dataset.offerId });
+          }
+        } catch (error) {
+          log(`Ошибка финансового действия: ${error.message}`);
+        }
+        return;
+      }
+
+      const videoButton = event.target.closest("[data-video-action]");
+      if (!videoButton) return;
+      const action = videoButton.dataset.videoAction;
       try {
         if (action === "join-call") {
           await startVideoCall();

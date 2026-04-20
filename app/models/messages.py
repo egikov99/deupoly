@@ -16,6 +16,11 @@ class ClientAction(str, Enum):
     PASS_AUCTION = "pass_auction"
     END_TURN = "end_turn"
     LEAVE_JAIL = "leave_jail"
+    TAKE_BANK_LOAN = "take_bank_loan"
+    REPAY_LOAN = "repay_loan"
+    PROPOSE_PLAYER_LOAN = "propose_player_loan"
+    ACCEPT_PLAYER_LOAN = "accept_player_loan"
+    REJECT_PLAYER_LOAN = "reject_player_loan"
 
 
 class ServerEventType(str, Enum):

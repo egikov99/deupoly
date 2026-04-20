@@ -14,7 +14,10 @@ from app.models.domain import (
     EventEffect,
     GamePhase,
     GameState,
+    Loan,
     LoanLenderType,
+    LoanOffer,
+    LoanOfferStatus,
     Player,
     Tile,
     TileType,
@@ -98,6 +101,16 @@ class GameEngine:
         if action in {ClientAction.PLACE_BID, ClientAction.PASS_AUCTION}:
             return self._process_auction_action(player_id, action, payload)
 
+        if action == ClientAction.TAKE_BANK_LOAN:
+            return self._take_bank_loan(player_id, payload)
+        if action == ClientAction.REPAY_LOAN:
+            return self._repay_loan(player_id, payload)
+        if action == ClientAction.PROPOSE_PLAYER_LOAN:
+            return self._propose_player_loan(player_id, payload)
+        if action == ClientAction.ACCEPT_PLAYER_LOAN:
+            return self._accept_player_loan(player_id, payload)
+        if action == ClientAction.REJECT_PLAYER_LOAN:
+            return self._reject_player_loan(player_id, payload)
         if action == ClientAction.ROLL_DICE:
             return self._roll_dice()
         if action == ClientAction.BUY_PROPERTY:
@@ -377,6 +390,118 @@ class GameEngine:
         self._set_last_event(f"{player.name} заплатил 50 за выход из тюрьмы.")
         return self._finish_action_events([])
 
+    def _take_bank_loan(self, player_id: str, payload: dict) -> list[ServerEvent]:
+        self._ensure_financial_actions_allowed()
+        player = self._find_player(player_id)
+        self._ensure_active_finance_player(player)
+        amount = self._positive_int(payload.get("amount"), "Сумма кредита должна быть положительной.")
+        loan = Loan(
+            id=str(uuid4()),
+            lender_type=LoanLenderType.BANK,
+            borrower_id=player.id,
+            amount=amount,
+            interest=0.15,
+            term_turns=10,
+            remaining_turns=10,
+        )
+        player.money += amount
+        player.loans.append(loan)
+        self._set_last_event(f"{player.name} взял кредит в банке на {amount}.")
+        return self._finish_action_events([])
+
+    def _repay_loan(self, player_id: str, payload: dict) -> list[ServerEvent]:
+        self._ensure_financial_actions_allowed()
+        player = self._find_player(player_id)
+        self._ensure_active_finance_player(player)
+        loan_id = str(payload.get("loan_id", "")).strip()
+        if not loan_id:
+            raise InvalidActionError("Не указан кредит для погашения.")
+
+        loan = self._find_player_loan(player, loan_id)
+        payment = self._calculate_loan_payment(loan)
+        if player.money < payment:
+            raise InvalidActionError(f"Недостаточно денег для погашения. Нужно {payment}.")
+
+        player.money -= payment
+        if loan.lender_type == LoanLenderType.PLAYER:
+            lender = self._find_player(loan.lender_id)
+            lender.money += payment
+        player.loans = [item for item in player.loans if item.id != loan.id]
+        self._set_last_event(f"{player.name} погасил займ на {payment}.")
+        return self._finish_action_events([])
+
+    def _propose_player_loan(self, player_id: str, payload: dict) -> list[ServerEvent]:
+        self._ensure_financial_actions_allowed()
+        borrower = self._find_player(player_id)
+        self._ensure_active_finance_player(borrower)
+        lender_id = str(payload.get("lender_id", "")).strip()
+        lender = self._find_player(lender_id)
+        self._ensure_active_finance_player(lender)
+        if lender.id == borrower.id:
+            raise InvalidActionError("Нельзя запросить займ у самого себя.")
+
+        amount = self._positive_int(payload.get("amount"), "Сумма займа должна быть положительной.")
+        collateral_tile_ids = self._collateral_ids_from_payload(payload)
+        self._validate_collateral(borrower, collateral_tile_ids)
+
+        offer = LoanOffer(
+            id=str(uuid4()),
+            lender_id=lender.id,
+            borrower_id=borrower.id,
+            amount=amount,
+            interest=0.10,
+            term_turns=10,
+            collateral_tile_ids=collateral_tile_ids,
+        )
+        self.game.loan_offers.append(offer)
+        self._set_last_event(f"{borrower.name} запросил займ {amount} у игрока {lender.name}.")
+        return self._finish_action_events([])
+
+    def _accept_player_loan(self, player_id: str, payload: dict) -> list[ServerEvent]:
+        self._ensure_financial_actions_allowed()
+        offer = self._find_loan_offer(str(payload.get("offer_id", "")).strip())
+        lender = self._find_player(player_id)
+        self._ensure_active_finance_player(lender)
+        if offer.lender_id != lender.id:
+            raise InvalidActionError("Принять займ может только выбранный кредитор.")
+        if lender.money < offer.amount:
+            raise InvalidActionError("У кредитора недостаточно денег для выдачи займа.")
+
+        borrower = self._find_player(offer.borrower_id)
+        self._ensure_active_finance_player(borrower)
+        self._validate_collateral(borrower, offer.collateral_tile_ids, offer_id=offer.id)
+
+        lender.money -= offer.amount
+        borrower.money += offer.amount
+        borrower.loans.append(
+            Loan(
+                id=str(uuid4()),
+                lender_type=LoanLenderType.PLAYER,
+                lender_id=lender.id,
+                borrower_id=borrower.id,
+                amount=offer.amount,
+                interest=offer.interest,
+                term_turns=offer.term_turns,
+                remaining_turns=offer.term_turns,
+                collateral_tile_ids=list(offer.collateral_tile_ids),
+            )
+        )
+        offer.status = LoanOfferStatus.ACCEPTED
+        self.game.loan_offers = [item for item in self.game.loan_offers if item.id != offer.id]
+        self._set_last_event(f"{lender.name} выдал займ {offer.amount} игроку {borrower.name}.")
+        return self._finish_action_events([])
+
+    def _reject_player_loan(self, player_id: str, payload: dict) -> list[ServerEvent]:
+        self._ensure_financial_actions_allowed()
+        offer = self._find_loan_offer(str(payload.get("offer_id", "")).strip())
+        if player_id not in {offer.lender_id, offer.borrower_id}:
+            raise InvalidActionError("Отклонить заявку может только заёмщик или кредитор.")
+        actor = self._find_player(player_id)
+        offer.status = LoanOfferStatus.REJECTED
+        self.game.loan_offers = [item for item in self.game.loan_offers if item.id != offer.id]
+        self._set_last_event(f"{actor.name} отклонил заявку на займ.")
+        return self._finish_action_events([])
+
     def _advance_turn(self) -> None:
         active_players = self.active_players
         if len(active_players) <= 1:
@@ -410,29 +535,33 @@ class GameEngine:
                 remaining_loans.append(loan)
                 continue
 
-            payment = int(loan.amount * (1 + loan.interest))
-            if loan.lender_type == LoanLenderType.BANK and player.money >= payment:
-                player.money -= payment
-                continue
-
             if loan.lender_type == LoanLenderType.BANK:
-                overdue_payment = int(payment * 1.5)
-                if player.money >= overdue_payment:
-                    player.money -= overdue_payment
+                payment = self._calculate_loan_payment(loan)
+                if player.money >= payment:
+                    player.money -= payment
+                    continue
+                if not loan.overdue_applied:
+                    loan.overdue_applied = True
+                    loan.overdue_turns = 4
+                    loan.remaining_turns = 4
+                    remaining_loans.append(loan)
+                    self._set_last_event(f"{player.name} просрочил банковский кредит. Долг увеличен на 50%, срок продлён на 4 хода.")
                     continue
                 player.is_active = False
                 self._release_assets(player)
+                self._set_last_event(f"{player.name} не выплатил банковский кредит и обанкротился.")
                 continue
 
             lender = self._find_player(loan.lender_id)
+            payment = self._calculate_loan_payment(loan)
             if player.money >= payment:
                 player.money -= payment
                 lender.money += payment
-            elif loan.collateral_tile_id is not None:
-                self._transfer_tile(loan.collateral_tile_id, player.id, lender.id)
             else:
-                player.is_active = False
-                self._release_assets(player)
+                collateral_tile_ids = self._loan_collateral_ids(loan)
+                for tile_id in collateral_tile_ids:
+                    self._transfer_tile(tile_id, player.id, lender.id)
+                self._set_last_event(f"{player.name} не выплатил займ. Залог перешёл игроку {lender.name}.")
 
         player.loans = remaining_loans
 
@@ -541,6 +670,95 @@ class GameEngine:
         if self.game.pending_tile_id is None:
             raise InvalidActionError("Сейчас нет клетки, ожидающей решения.")
         return self.game.board[self.game.pending_tile_id]
+
+    def _ensure_financial_actions_allowed(self) -> None:
+        if self.game.phase == GamePhase.WAITING_FOR_PLAYERS:
+            raise InvalidActionError("Финансовые действия доступны только после старта игры.")
+
+    def _ensure_active_finance_player(self, player: Player) -> None:
+        if not player.is_active:
+            raise InvalidActionError("Неактивный игрок не может выполнять финансовые действия.")
+
+    def _positive_int(self, value: object, error_message: str) -> int:
+        try:
+            amount = int(value)
+        except (TypeError, ValueError) as exc:
+            raise InvalidActionError(error_message) from exc
+        if amount <= 0:
+            raise InvalidActionError(error_message)
+        return amount
+
+    def _find_player_loan(self, player: Player, loan_id: str) -> Loan:
+        for loan in player.loans:
+            if loan.id == loan_id:
+                return loan
+        raise InvalidActionError("Займ не найден.")
+
+    def _find_loan_offer(self, offer_id: str) -> LoanOffer:
+        if not offer_id:
+            raise InvalidActionError("Не указана заявка на займ.")
+        for offer in self.game.loan_offers:
+            if offer.id == offer_id and offer.status == LoanOfferStatus.PENDING:
+                return offer
+        raise InvalidActionError("Заявка на займ не найдена.")
+
+    def _calculate_loan_payment(self, loan: Loan) -> int:
+        if loan.overdue_applied:
+            return int(loan.amount * (1 + loan.interest) * 1.5)
+        elapsed_turns = max(0, loan.term_turns - loan.remaining_turns)
+        if elapsed_turns >= loan.term_turns:
+            effective_interest = loan.interest
+        else:
+            effective_interest = loan.interest * (elapsed_turns / loan.term_turns)
+        return int(loan.amount * (1 + effective_interest))
+
+    def _collateral_ids_from_payload(self, payload: dict) -> list[int]:
+        raw_collateral = payload.get("collateral_tile_ids")
+        if raw_collateral is None:
+            raw_collateral = payload.get("collateral_tile_id")
+        if raw_collateral is None:
+            raise InvalidActionError("Для займа у игрока нужен залог.")
+        if not isinstance(raw_collateral, list):
+            raw_collateral = [raw_collateral]
+        try:
+            collateral_tile_ids = [int(tile_id) for tile_id in raw_collateral]
+        except (TypeError, ValueError) as exc:
+            raise InvalidActionError("Некорректный список залоговых активов.") from exc
+        if not collateral_tile_ids:
+            raise InvalidActionError("Для займа у игрока нужен залог.")
+        if len(set(collateral_tile_ids)) != len(collateral_tile_ids):
+            raise InvalidActionError("Залоговые активы не должны повторяться.")
+        return collateral_tile_ids
+
+    def _validate_collateral(self, borrower: Player, collateral_tile_ids: list[int], offer_id: Optional[str] = None) -> None:
+        pledged_tile_ids = self._pledged_tile_ids(exclude_offer_id=offer_id)
+        for tile_id in collateral_tile_ids:
+            if tile_id < 0 or tile_id >= len(self.game.board):
+                raise InvalidActionError("Залоговый актив не найден.")
+            tile = self.game.board[tile_id]
+            if tile.owner_id != borrower.id:
+                raise InvalidActionError("В залог можно передать только свой актив.")
+            if tile_id in pledged_tile_ids:
+                raise InvalidActionError("Этот актив уже используется как залог.")
+
+    def _pledged_tile_ids(self, exclude_offer_id: Optional[str] = None) -> set[int]:
+        pledged: set[int] = set()
+        for player in self.game.players:
+            for loan in player.loans:
+                pledged.update(self._loan_collateral_ids(loan))
+        for offer in self.game.loan_offers:
+            if offer.id == exclude_offer_id:
+                continue
+            if offer.status == LoanOfferStatus.PENDING:
+                pledged.update(offer.collateral_tile_ids)
+        return pledged
+
+    def _loan_collateral_ids(self, loan: Loan) -> list[int]:
+        if loan.collateral_tile_ids:
+            return list(loan.collateral_tile_ids)
+        if loan.collateral_tile_id is not None:
+            return [loan.collateral_tile_id]
+        return []
 
     def _find_player(self, player_id: Optional[str]) -> Player:
         if player_id is None:

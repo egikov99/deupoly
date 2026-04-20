@@ -1,3 +1,6 @@
+import pytest
+
+from app.core.exceptions import InvalidActionError
 from app.core.engine import GameEngine
 from app.models.domain import DiceResult, GamePhase
 from app.models.messages import ClientAction
@@ -106,3 +109,120 @@ def test_player_can_buy_after_auction_without_sale() -> None:
     engine.process_action(initiator.id, ClientAction.BUY_PROPERTY)
 
     assert engine.game.board[1].owner_id == initiator.id
+
+
+def test_bank_loan_can_be_repaid_early_with_reduced_interest() -> None:
+    engine = GameEngine(game_id="game-bank-loan")
+    player = engine.add_player("Alice")
+    engine.add_player("Bob")
+    engine.game.phase = GamePhase.WAITING_FOR_ACTION
+    engine.game.round = 1
+
+    engine.process_action(player.id, ClientAction.TAKE_BANK_LOAN, {"amount": 1000})
+
+    loan = player.loans[0]
+    loan.remaining_turns = 5
+    engine.process_action(player.id, ClientAction.REPAY_LOAN, {"loan_id": loan.id})
+
+    assert player.money == 1425
+    assert player.loans == []
+
+
+def test_bank_loan_overdue_extends_once_then_bankrupts_player() -> None:
+    engine = GameEngine(game_id="game-bank-overdue")
+    player = engine.add_player("Alice")
+    engine.add_player("Bob")
+    engine.game.phase = GamePhase.WAITING_FOR_ACTION
+    engine.game.round = 1
+
+    engine.process_action(player.id, ClientAction.TAKE_BANK_LOAN, {"amount": 1000})
+    loan = player.loans[0]
+    player.money = 0
+    loan.remaining_turns = 1
+
+    engine._process_loans(player)
+
+    assert player.is_active is True
+    assert loan.overdue_applied is True
+    assert loan.remaining_turns == 4
+    assert player.loans == [loan]
+
+    loan.remaining_turns = 1
+    engine._process_loans(player)
+
+    assert player.is_active is False
+    assert player.loans == []
+
+
+def test_player_loan_requires_collateral_and_transfers_it_on_default() -> None:
+    engine = GameEngine(game_id="game-player-loan")
+    borrower = engine.add_player("Alice")
+    lender = engine.add_player("Bob")
+    engine.game.phase = GamePhase.WAITING_FOR_ACTION
+    engine.game.round = 1
+    engine.game.board[1].owner_id = borrower.id
+    engine.game.board[2].owner_id = borrower.id
+    engine._refresh_player_assets()
+
+    engine.process_action(
+        borrower.id,
+        ClientAction.PROPOSE_PLAYER_LOAN,
+        {"lender_id": lender.id, "amount": 300, "collateral_tile_ids": [1, 2]},
+    )
+    offer = engine.game.loan_offers[0]
+    engine.process_action(lender.id, ClientAction.ACCEPT_PLAYER_LOAN, {"offer_id": offer.id})
+
+    assert lender.money == 1200
+    assert borrower.money == 1800
+    assert engine.game.loan_offers == []
+    assert borrower.loans[0].collateral_tile_ids == [1, 2]
+
+    borrower.money = 0
+    borrower.loans[0].remaining_turns = 1
+    engine._process_loans(borrower)
+
+    assert borrower.loans == []
+    assert engine.game.board[1].owner_id == lender.id
+    assert engine.game.board[2].owner_id == lender.id
+    assert 1 not in borrower.properties
+    assert 2 not in borrower.properties
+    assert 1 in lender.properties
+    assert 2 in lender.properties
+
+
+def test_player_loan_rejects_missing_foreign_or_pledged_collateral() -> None:
+    engine = GameEngine(game_id="game-player-loan-validation")
+    borrower = engine.add_player("Alice")
+    lender = engine.add_player("Bob")
+    engine.game.phase = GamePhase.WAITING_FOR_ACTION
+    engine.game.round = 1
+    engine.game.board[1].owner_id = borrower.id
+    engine.game.board[2].owner_id = lender.id
+    engine._refresh_player_assets()
+
+    with pytest.raises(InvalidActionError, match="нужен залог"):
+        engine.process_action(
+            borrower.id,
+            ClientAction.PROPOSE_PLAYER_LOAN,
+            {"lender_id": lender.id, "amount": 100},
+        )
+
+    with pytest.raises(InvalidActionError, match="только свой актив"):
+        engine.process_action(
+            borrower.id,
+            ClientAction.PROPOSE_PLAYER_LOAN,
+            {"lender_id": lender.id, "amount": 100, "collateral_tile_ids": [2]},
+        )
+
+    engine.process_action(
+        borrower.id,
+        ClientAction.PROPOSE_PLAYER_LOAN,
+        {"lender_id": lender.id, "amount": 100, "collateral_tile_ids": [1]},
+    )
+
+    with pytest.raises(InvalidActionError, match="уже используется"):
+        engine.process_action(
+            borrower.id,
+            ClientAction.PROPOSE_PLAYER_LOAN,
+            {"lender_id": lender.id, "amount": 100, "collateral_tile_ids": [1]},
+        )
