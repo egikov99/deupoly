@@ -33,6 +33,15 @@ class AdminCreateUserRequest(UserCredentialsRequest):
     is_admin: bool = False
 
 
+class AdminUpdateUserRequest(BaseModel):
+    username: str = Field(min_length=3, max_length=32)
+    is_admin: bool = False
+
+
+class AdminResetPasswordRequest(BaseModel):
+    password: str = Field(min_length=6, max_length=128)
+
+
 class CreateGameRequest(BaseModel):
     max_players: int = Field(default=4, ge=2, le=6)
     player_name: Optional[str] = Field(default=None, min_length=1, max_length=32)

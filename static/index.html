@@ -43,6 +43,37 @@
       grid-template-columns: 1fr;
     }
 
+    .layout.lobby-mode {
+      grid-template-columns: 1fr;
+    }
+
+    .layout.lobby-mode #sidebar-panel {
+      display: grid;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+      align-items: start;
+    }
+
+    .layout.lobby-mode .brand-card {
+      grid-column: 1 / -1;
+    }
+
+    .layout.lobby-mode #account-panel {
+      grid-column: span 4;
+    }
+
+    .layout.lobby-mode #games-panel {
+      grid-column: span 5;
+    }
+
+    .layout.lobby-mode #admin-panel {
+      grid-column: span 3;
+    }
+
+    .layout.lobby-mode #lobby-controls,
+    .layout.lobby-mode #lobby-status {
+      grid-column: span 6;
+    }
+
     .panel {
       background: var(--panel);
       border: 1px solid var(--line);
@@ -259,6 +290,39 @@
       border-radius: 12px;
       padding: 10px 12px;
       background: rgba(255, 255, 255, 0.88);
+      display: grid;
+      gap: 8px;
+    }
+
+    .admin-user-grid {
+      display: grid;
+      grid-template-columns: minmax(120px, 1fr) auto;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .admin-user-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .admin-user-actions button {
+      width: auto;
+      min-width: 112px;
+      flex: 0 1 auto;
+    }
+
+    .check-row {
+      display: inline-flex;
+      gap: 8px;
+      align-items: center;
+      font-size: 14px;
+    }
+
+    .check-row input {
+      width: auto;
+      padding: 0;
     }
 
     .game-card.current {
@@ -869,6 +933,18 @@
         grid-template-columns: 1fr;
       }
 
+      .layout.lobby-mode #sidebar-panel {
+        grid-template-columns: 1fr;
+      }
+
+      .layout.lobby-mode #account-panel,
+      .layout.lobby-mode #games-panel,
+      .layout.lobby-mode #admin-panel,
+      .layout.lobby-mode #lobby-controls,
+      .layout.lobby-mode #lobby-status {
+        grid-column: 1 / -1;
+      }
+
       .status-bar {
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
@@ -992,6 +1068,10 @@
         <strong>Админ</strong>
         <input id="admin-user-username" placeholder="Логин пользователя" />
         <input id="admin-user-password" type="password" placeholder="Пароль пользователя" />
+        <label class="check-row">
+          <input id="admin-user-is-admin" type="checkbox" />
+          Администратор
+        </label>
         <button id="admin-create-user">Добавить пользователя</button>
         <div id="admin-hint" class="hint hidden"></div>
         <div id="admin-users-list" class="users-list"></div>
@@ -1127,6 +1207,7 @@
     const authHintNode = document.getElementById("auth-hint");
     const adminUserUsernameInput = document.getElementById("admin-user-username");
     const adminUserPasswordInput = document.getElementById("admin-user-password");
+    const adminUserIsAdminInput = document.getElementById("admin-user-is-admin");
     const adminHintNode = document.getElementById("admin-hint");
     const adminUsersListNode = document.getElementById("admin-users-list");
     const sessionNode = document.getElementById("session");
@@ -1361,7 +1442,8 @@
     const escapeHtml = (value) => String(value ?? "")
       .replaceAll("&", "&amp;")
       .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;");
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;");
     const getLocalParticipantInfo = () => ({
       user_id: currentUser?.id,
       player_id: playerId,
@@ -1956,10 +2038,25 @@
       }
 
       adminUsersListNode.innerHTML = users.map((user) => `
-        <div class="user-row">
-          <strong>${user.username}${user.is_admin ? " • админ" : ""}</strong>
-          <div class="meta">Сыграно: ${user.stats.games_played} | На паузе: ${user.stats.current_games}</div>
-          <div class="meta">Победы: ${user.stats.wins} | Поражения: ${user.stats.losses}</div>
+        <div class="user-row" data-user-id="${user.id}">
+          <div>
+            <strong>${escapeHtml(user.username)}${user.is_admin ? " • админ" : ""}</strong>
+            <div class="meta">Сыграно: ${user.stats.games_played} | На паузе: ${user.stats.current_games}</div>
+            <div class="meta">Победы: ${user.stats.wins} | Поражения: ${user.stats.losses}</div>
+          </div>
+          <div class="admin-user-grid">
+            <input class="admin-edit-username" value="${escapeHtml(user.username)}" />
+            <label class="check-row">
+              <input class="admin-edit-is-admin" type="checkbox" ${user.is_admin ? "checked" : ""} />
+              Админ
+            </label>
+          </div>
+          <input class="admin-reset-password" type="password" placeholder="Новый пароль" />
+          <div class="admin-user-actions">
+            <button data-admin-user-action="save">Сохранить</button>
+            <button class="secondary" data-admin-user-action="reset-password">Сбросить пароль</button>
+            <button class="warn" data-admin-user-action="delete" ${user.id === currentUser?.id ? "disabled" : ""}>Удалить</button>
+          </div>
         </div>
       `).join("");
     };
@@ -2090,6 +2187,7 @@
       setHidden(sidebarPanelNode, inStartedGame);
       setHidden(brandFooterNode, !inStartedGame);
       layoutNode.classList.toggle("game-mode", inStartedGame);
+      layoutNode.classList.toggle("lobby-mode", isAuthenticated && !inStartedGame);
 
       startGameButton.disabled = !canStartGame;
       setHidden(startGameButton, !state || !isJoined);
@@ -2368,6 +2466,7 @@
       showAuthHint("");
       showAdminHint("");
       showLobbyHint("");
+      layoutNode.classList.remove("lobby-mode");
     };
 
     const bootstrap = async () => {
@@ -2687,15 +2786,61 @@
           body: JSON.stringify({
             username: adminUserUsernameInput.value.trim(),
             password: adminUserPasswordInput.value,
-            is_admin: false
+            is_admin: adminUserIsAdminInput.checked
           })
         });
         adminUserUsernameInput.value = "";
         adminUserPasswordInput.value = "";
+        adminUserIsAdminInput.checked = false;
         showAdminHint(`Создан пользователь ${data.user.username}`);
         await loadUsers();
       } catch (error) {
         showAdminHint(`Ошибка создания пользователя: ${error.message}`);
+      }
+    };
+
+    adminUsersListNode.onclick = async (event) => {
+      const button = event.target.closest("[data-admin-user-action]");
+      if (!button) return;
+      const row = button.closest("[data-user-id]");
+      const userId = row?.dataset.userId;
+      if (!userId) return;
+
+      try {
+        if (button.dataset.adminUserAction === "save") {
+          const username = row.querySelector(".admin-edit-username")?.value.trim();
+          const isAdmin = row.querySelector(".admin-edit-is-admin")?.checked || false;
+          await api(`/api/admin/users/${userId}`, {
+            method: "PUT",
+            body: JSON.stringify({ username, is_admin: isAdmin })
+          });
+          showAdminHint("Пользователь обновлён.");
+        }
+
+        if (button.dataset.adminUserAction === "reset-password") {
+          const passwordInput = row.querySelector(".admin-reset-password");
+          const password = passwordInput?.value || "";
+          await api(`/api/admin/users/${userId}/reset-password`, {
+            method: "POST",
+            body: JSON.stringify({ password })
+          });
+          if (passwordInput) passwordInput.value = "";
+          showAdminHint("Пароль сброшен. Старые сессии пользователя завершены.");
+        }
+
+        if (button.dataset.adminUserAction === "delete") {
+          const username = row.querySelector(".admin-edit-username")?.value || "пользователя";
+          if (!window.confirm(`Удалить ${username}? Это действие нельзя отменить.`)) return;
+          await api(`/api/admin/users/${userId}`, { method: "DELETE" });
+          showAdminHint("Пользователь удалён.");
+        }
+
+        await refreshCurrentUser();
+        await loadUsers();
+        await loadGames();
+        renderControls();
+      } catch (error) {
+        showAdminHint(`Ошибка управления пользователем: ${error.message}`);
       }
     };
 

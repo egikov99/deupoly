@@ -73,6 +73,50 @@ class MemoryGameStorage(AbstractGameStorage):
         user["is_admin"] = is_admin
         return deepcopy(user)
 
+    async def update_user(self, user_id: str, username: str, is_admin: bool) -> Optional[dict[str, Any]]:
+        user = self._users.get(user_id)
+        if user is None:
+            return None
+        normalized = username.strip().lower()
+        existing_user_id = self._usernames.get(normalized)
+        if existing_user_id is not None and existing_user_id != user_id:
+            raise ValueError("username_exists")
+
+        old_normalized = user["username"].strip().lower()
+        self._usernames.pop(old_normalized, None)
+        self._usernames[normalized] = user_id
+        user["username"] = username.strip()
+        user["is_admin"] = is_admin
+        return deepcopy(user)
+
+    async def update_user_password(self, user_id: str, password_hash: str, password_salt: str) -> Optional[dict[str, Any]]:
+        user = self._users.get(user_id)
+        if user is None:
+            return None
+        user["password_hash"] = password_hash
+        user["password_salt"] = password_salt
+        self._sessions = {
+            token: session for token, session in self._sessions.items() if session["user_id"] != user_id
+        }
+        return deepcopy(user)
+
+    async def delete_user(self, user_id: str) -> bool:
+        user = self._users.pop(user_id, None)
+        if user is None:
+            return False
+        self._usernames.pop(user["username"].strip().lower(), None)
+        self._sessions = {
+            token: session for token, session in self._sessions.items() if session["user_id"] != user_id
+        }
+        self._memberships = {
+            key: membership for key, membership in self._memberships.items() if key[1] != user_id
+        }
+        if hasattr(self, "_results"):
+            self._results = {
+                key: result for key, result in self._results.items() if key[1] != user_id
+            }
+        return True
+
     async def create_session(self, session_token: str, user_id: str, expires_at: str) -> None:
         self._sessions[session_token] = {"session_token": session_token, "user_id": user_id, "expires_at": expires_at}
 

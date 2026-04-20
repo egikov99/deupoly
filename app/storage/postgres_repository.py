@@ -188,6 +188,50 @@ class PostgresGameRepository:
             await connection.commit()
         return row
 
+    async def update_user(self, user_id: str, username: str, is_admin: bool) -> Optional[dict[str, Any]]:
+        async with await AsyncConnection.connect(self._database_url, row_factory=dict_row) as connection:
+            async with connection.cursor() as cursor:
+                await cursor.execute(
+                    """
+                    UPDATE users
+                    SET username = %s,
+                        is_admin = %s
+                    WHERE id = %s
+                    RETURNING id::text AS id, username, password_hash, password_salt, is_admin
+                    """,
+                    (username, is_admin, user_id),
+                )
+                row = await cursor.fetchone()
+            await connection.commit()
+        return row
+
+    async def update_user_password(self, user_id: str, password_hash: str, password_salt: str) -> Optional[dict[str, Any]]:
+        async with await AsyncConnection.connect(self._database_url, row_factory=dict_row) as connection:
+            async with connection.cursor() as cursor:
+                await cursor.execute(
+                    """
+                    UPDATE users
+                    SET password_hash = %s,
+                        password_salt = %s
+                    WHERE id = %s
+                    RETURNING id::text AS id, username, password_hash, password_salt, is_admin
+                    """,
+                    (password_hash, password_salt, user_id),
+                )
+                row = await cursor.fetchone()
+                if row is not None:
+                    await cursor.execute("DELETE FROM user_sessions WHERE user_id = %s", (user_id,))
+            await connection.commit()
+        return row
+
+    async def delete_user(self, user_id: str) -> bool:
+        async with await AsyncConnection.connect(self._database_url) as connection:
+            async with connection.cursor() as cursor:
+                await cursor.execute("DELETE FROM users WHERE id = %s", (user_id,))
+                deleted = cursor.rowcount > 0
+            await connection.commit()
+        return deleted
+
     async def create_session(self, session_token: str, user_id: str, expires_at: str) -> None:
         async with await AsyncConnection.connect(self._database_url) as connection:
             async with connection.cursor() as cursor:

@@ -62,6 +62,19 @@ class GameStorage(AbstractGameStorage):
     async def set_user_admin(self, user_id: str, is_admin: bool) -> Optional[dict[str, Any]]:
         return await self._postgres_repository.set_user_admin(user_id=user_id, is_admin=is_admin)
 
+    async def update_user(self, user_id: str, username: str, is_admin: bool) -> Optional[dict[str, Any]]:
+        return await self._postgres_repository.update_user(user_id=user_id, username=username, is_admin=is_admin)
+
+    async def update_user_password(self, user_id: str, password_hash: str, password_salt: str) -> Optional[dict[str, Any]]:
+        return await self._postgres_repository.update_user_password(
+            user_id=user_id,
+            password_hash=password_hash,
+            password_salt=password_salt,
+        )
+
+    async def delete_user(self, user_id: str) -> bool:
+        return await self._postgres_repository.delete_user(user_id=user_id)
+
     async def create_session(self, session_token: str, user_id: str, expires_at: str) -> None:
         await self._postgres_repository.create_session(session_token=session_token, user_id=user_id, expires_at=expires_at)
 

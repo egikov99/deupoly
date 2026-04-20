@@ -5,6 +5,8 @@ from app.core.exceptions import AuthenticationError, GameError
 from app.core.exceptions import AuthorizationError
 from app.models.api import (
     AdminCreateUserRequest,
+    AdminResetPasswordRequest,
+    AdminUpdateUserRequest,
     AuthResponse,
     CreateGameRequest,
     GameSummary,
@@ -145,6 +147,40 @@ def get_router() -> APIRouter:
             is_admin=payload.is_admin,
         )
         return {"user": user}
+
+    @router.put("/admin/users/{user_id}", response_model=AuthResponse)
+    async def update_user_by_admin(
+        user_id: str,
+        payload: AdminUpdateUserRequest,
+        admin_user: dict = Depends(get_admin_user),
+        auth_service: AuthService = Depends(get_auth_service),
+    ) -> dict:
+        user = await auth_service.update_user(
+            user_id=user_id,
+            username=payload.username,
+            is_admin=payload.is_admin,
+            actor_user_id=admin_user["id"],
+        )
+        return {"user": user}
+
+    @router.post("/admin/users/{user_id}/reset-password", response_model=AuthResponse)
+    async def reset_user_password_by_admin(
+        user_id: str,
+        payload: AdminResetPasswordRequest,
+        _: dict = Depends(get_admin_user),
+        auth_service: AuthService = Depends(get_auth_service),
+    ) -> dict:
+        user = await auth_service.reset_user_password(user_id=user_id, password=payload.password)
+        return {"user": user}
+
+    @router.delete("/admin/users/{user_id}")
+    async def delete_user_by_admin(
+        user_id: str,
+        admin_user: dict = Depends(get_admin_user),
+        auth_service: AuthService = Depends(get_auth_service),
+    ) -> dict[str, bool]:
+        await auth_service.delete_user(user_id=user_id, actor_user_id=admin_user["id"])
+        return {"ok": True}
 
     @router.get("/games", response_model=list[GameSummary])
     async def list_games(current_user: dict = Depends(get_current_user), gm: GameManager = Depends(get_game_manager)) -> list[dict]:

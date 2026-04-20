@@ -8,7 +8,7 @@ from typing import Any, Optional
 
 from psycopg.errors import UniqueViolation
 
-from app.core.exceptions import AuthenticationError, ConflictError
+from app.core.exceptions import AuthenticationError, ConflictError, GameNotFoundError, InvalidActionError
 from app.storage.base import AbstractGameStorage
 
 
@@ -66,6 +66,56 @@ class AuthService:
         users = await self._storage.list_users()
         return [await self._to_public_user(user) for user in users]
 
+    async def update_user(self, user_id: str, username: str, is_admin: bool, actor_user_id: str) -> dict[str, Any]:
+        existing = await self._storage.get_user_by_id(user_id)
+        if existing is None:
+            raise GameNotFoundError("Пользователь не найден.")
+        username_owner = await self._storage.get_user_by_username(username.strip())
+        if username_owner is not None and username_owner["id"] != user_id:
+            raise ConflictError("Пользователь с таким логином уже существует.")
+        if existing.get("is_admin") and not is_admin:
+            await self._ensure_can_remove_admin(user_id)
+
+        try:
+            user = await self._storage.update_user(
+                user_id=user_id,
+                username=username.strip(),
+                is_admin=is_admin,
+            )
+        except (ValueError, UniqueViolation) as exc:
+            raise ConflictError("Пользователь с таким логином уже существует.") from exc
+        if user is None:
+            raise GameNotFoundError("Пользователь не найден.")
+        return await self._to_public_user(user)
+
+    async def reset_user_password(self, user_id: str, password: str) -> dict[str, Any]:
+        existing = await self._storage.get_user_by_id(user_id)
+        if existing is None:
+            raise GameNotFoundError("Пользователь не найден.")
+
+        salt = secrets.token_hex(16)
+        password_hash = self._hash_password(password=password, salt=salt)
+        user = await self._storage.update_user_password(
+            user_id=user_id,
+            password_hash=password_hash,
+            password_salt=salt,
+        )
+        if user is None:
+            raise GameNotFoundError("Пользователь не найден.")
+        return await self._to_public_user(user)
+
+    async def delete_user(self, user_id: str, actor_user_id: str) -> None:
+        if user_id == actor_user_id:
+            raise InvalidActionError("Нельзя удалить текущего администратора.")
+        existing = await self._storage.get_user_by_id(user_id)
+        if existing is None:
+            raise GameNotFoundError("Пользователь не найден.")
+        if existing.get("is_admin"):
+            await self._ensure_can_remove_admin(user_id)
+        deleted = await self._storage.delete_user(user_id)
+        if not deleted:
+            raise GameNotFoundError("Пользователь не найден.")
+
     async def ensure_admin(self, username: Optional[str], password: Optional[str]) -> Optional[dict[str, Any]]:
         if not username or not password:
             return None
@@ -76,6 +126,12 @@ class AuthService:
                 existing = updated or existing
             return await self._to_public_user(existing)
         return await self.register(username=username, password=password, is_admin=True)
+
+    async def _ensure_can_remove_admin(self, user_id: str) -> None:
+        users = await self._storage.list_users()
+        other_admin_exists = any(user["id"] != user_id and user.get("is_admin") for user in users)
+        if not other_admin_exists:
+            raise InvalidActionError("Нельзя убрать последнего администратора.")
 
     def _hash_password(self, password: str, salt: str) -> str:
         return hashlib.pbkdf2_hmac(

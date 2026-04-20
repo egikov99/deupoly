@@ -48,6 +48,18 @@ class AbstractGameStorage(ABC):
         """Update admin role for a user."""
 
     @abstractmethod
+    async def update_user(self, user_id: str, username: str, is_admin: bool) -> Optional[dict[str, Any]]:
+        """Update editable user profile fields."""
+
+    @abstractmethod
+    async def update_user_password(self, user_id: str, password_hash: str, password_salt: str) -> Optional[dict[str, Any]]:
+        """Replace user password credentials."""
+
+    @abstractmethod
+    async def delete_user(self, user_id: str) -> bool:
+        """Delete a user and related sessions/memberships."""
+
+    @abstractmethod
     async def create_session(self, session_token: str, user_id: str, expires_at: str) -> None:
         """Persist a login session."""
 
