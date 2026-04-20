@@ -1189,6 +1189,7 @@
     let movingPlayerId = null;
     let diceFaces = [1, 1];
     let activeModalTab = "finance";
+    let autoOpenedIncomingOfferIds = new Set();
     let audioContext = null;
     let videoConfig = null;
     let videoCallActive = false;
@@ -1329,6 +1330,7 @@
       isAnimatingMovement = false;
       movingPlayerId = null;
       diceFaces = [1, 1];
+      autoOpenedIncomingOfferIds = new Set();
       closeFinanceModal();
       renderControls();
       playersNode.innerHTML = "";
@@ -1664,6 +1666,34 @@
     };
     const closeFinanceModal = () => {
       setHidden(gameModalBackdropNode, true);
+    };
+    const getActionableIncomingLoanOffers = () => (state?.loan_offers || []).filter((offer) =>
+      offer.lender_id === playerId &&
+      offer.status === "pending" &&
+      isInitiatorTurnWindow(offer.borrower_id)
+    );
+    const getActionableIncomingTradeOffers = () => (state?.trade_offers || []).filter((offer) =>
+      offer.recipient_id === playerId &&
+      offer.status === "pending" &&
+      isInitiatorTurnWindow(offer.initiator_id)
+    );
+    const maybeOpenIncomingOfferModal = () => {
+      if (!state || !playerId || state.phase === "finished") return;
+
+      const tradeOffer = getActionableIncomingTradeOffers()
+        .find((offer) => !autoOpenedIncomingOfferIds.has(`trade:${offer.id}`));
+      if (tradeOffer) {
+        autoOpenedIncomingOfferIds.add(`trade:${tradeOffer.id}`);
+        openFinanceModal("trade");
+        return;
+      }
+
+      const loanOffer = getActionableIncomingLoanOffers()
+        .find((offer) => !autoOpenedIncomingOfferIds.has(`loan:${offer.id}`));
+      if (loanOffer) {
+        autoOpenedIncomingOfferIds.add(`loan:${loanOffer.id}`);
+        openFinanceModal("finance");
+      }
     };
     const getVideoStatusText = () => {
       if (!videoCallActive) return "Видеозвонок выключен";
@@ -2023,17 +2053,7 @@
     const hasActionableModalItems = () => {
       if (!state || !playerId || state.phase === "finished") return false;
       if (isCurrentTurnActionWindow()) return true;
-      const incomingLoan = (state.loan_offers || []).some((offer) =>
-        offer.lender_id === playerId &&
-        offer.status === "pending" &&
-        isInitiatorTurnWindow(offer.borrower_id)
-      );
-      const incomingTrade = (state.trade_offers || []).some((offer) =>
-        offer.recipient_id === playerId &&
-        offer.status === "pending" &&
-        isInitiatorTurnWindow(offer.initiator_id)
-      );
-      return incomingLoan || incomingTrade;
+      return Boolean(getActionableIncomingLoanOffers().length || getActionableIncomingTradeOffers().length);
     };
 
     const renderControls = () => {
@@ -2382,6 +2402,7 @@
       renderPlayers();
       renderBoard();
       renderFinanceModal();
+      maybeOpenIncomingOfferModal();
       if (state.last_event) {
         log(`Состояние: ${state.last_event}`);
       }
