@@ -58,11 +58,15 @@
     }
 
     .layout.lobby-mode #account-panel {
-      grid-column: span 4;
+      grid-column: span 3;
+    }
+
+    .layout.lobby-mode #rules-widget {
+      grid-column: span 3;
     }
 
     .layout.lobby-mode #games-panel {
-      grid-column: span 5;
+      grid-column: span 3;
     }
 
     .layout.lobby-mode #admin-panel {
@@ -211,6 +215,21 @@
     .brand-card {
       display: grid;
       gap: 8px;
+    }
+
+    .rules-widget {
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 14px;
+      background:
+        radial-gradient(circle at top right, rgba(187, 62, 3, 0.12), transparent 38%),
+        rgba(255, 255, 255, 0.82);
+      display: grid;
+      gap: 10px;
+    }
+
+    .rules-widget button {
+      background: #2d6a4f;
     }
 
     .brand-footer {
@@ -599,6 +618,45 @@
       min-width: 0;
     }
 
+    .rules-layout {
+      display: grid;
+      grid-template-columns: minmax(260px, 0.9fr) minmax(320px, 1.1fr);
+      gap: 12px;
+      align-items: start;
+    }
+
+    .rules-section-list,
+    .cards-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .rules-section,
+    .event-card-row {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 12px;
+      background: rgba(255, 255, 255, 0.78);
+    }
+
+    .rules-section ul {
+      margin: 8px 0 0;
+      padding-left: 18px;
+    }
+
+    .event-card-row {
+      display: grid;
+      gap: 6px;
+    }
+
+    .event-card-row strong {
+      font-family: "Space Grotesk", "IBM Plex Sans", sans-serif;
+    }
+
+    .rules-modal .game-modal {
+      width: min(1080px, 100%);
+    }
+
     .modal-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -938,6 +996,7 @@
       }
 
       .layout.lobby-mode #account-panel,
+      .layout.lobby-mode #rules-widget,
       .layout.lobby-mode #games-panel,
       .layout.lobby-mode #admin-panel,
       .layout.lobby-mode #lobby-controls,
@@ -968,7 +1027,8 @@
       .center-players-grid,
       .center-status-grid,
       .video-grid,
-      .modal-grid {
+      .modal-grid,
+      .rules-layout {
         grid-template-columns: 1fr;
       }
 
@@ -1017,6 +1077,14 @@
       <div class="brand-card">
         <h1>Deupoly</h1>
         <div class="meta">Авторитарный сервер FastAPI + WebSocket</div>
+      </div>
+
+      <div id="rules-widget" class="rules-widget">
+        <div>
+          <strong>Правила и карточки</strong>
+          <div class="meta">Быстрая справка по клеткам, экономике, займам, сделкам и событиям.</div>
+        </div>
+        <button id="open-rules">Открыть правила</button>
       </div>
 
       <div id="auth-panel" class="auth-card stack">
@@ -1138,6 +1206,7 @@
         <button id="pass-auction" class="warn hidden">Пас</button>
         <button id="leave-jail" class="secondary hidden">Заплатить 50 и выйти</button>
         <button id="open-finance-modal" class="secondary hidden">Финансы и сделки</button>
+        <button id="open-rules-game" class="secondary hidden">Правила</button>
         <button id="end-turn" class="hidden">Завершить ход</button>
       </div>
 
@@ -1185,6 +1254,21 @@
         <button data-modal-tab="trade">Сделки активами</button>
       </div>
       <div id="game-modal-content" class="modal-content"></div>
+    </div>
+  </div>
+
+  <div id="rules-modal-backdrop" class="modal-backdrop rules-modal hidden">
+    <div class="game-modal">
+      <div class="modal-head">
+        <div>
+          <h2>Правила и возможности</h2>
+          <div class="meta">Справка по Deupoly и полное описание карточек событий</div>
+        </div>
+        <button id="close-rules-modal" class="secondary modal-close">Закрыть</button>
+      </div>
+      <div id="rules-modal-content" class="modal-content">
+        <div class="empty-state">Загрузка правил...</div>
+      </div>
     </div>
   </div>
 
@@ -1242,9 +1326,13 @@
     const startGameButton = document.getElementById("start-game");
     const backToTablesButton = document.getElementById("back-to-tables");
     const openFinanceModalButton = document.getElementById("open-finance-modal");
+    const openRulesButton = document.getElementById("open-rules");
+    const openRulesGameButton = document.getElementById("open-rules-game");
     const gameModalBackdropNode = document.getElementById("game-modal-backdrop");
     const gameModalSubtitleNode = document.getElementById("game-modal-subtitle");
     const gameModalContentNode = document.getElementById("game-modal-content");
+    const rulesModalBackdropNode = document.getElementById("rules-modal-backdrop");
+    const rulesModalContentNode = document.getElementById("rules-modal-content");
     const actionButtons = {
       roll_dice: document.getElementById("roll-dice"),
       buy_property: document.getElementById("buy-property"),
@@ -1262,6 +1350,7 @@
     let games = [];
     let users = [];
     let state = null;
+    let rulesData = null;
     let playerId = null;
     let gameId = null;
     let displayPositions = {};
@@ -1749,6 +1838,62 @@
     const closeFinanceModal = () => {
       setHidden(gameModalBackdropNode, true);
     };
+    const renderRulesModal = () => {
+      if (!rulesData) {
+        rulesModalContentNode.innerHTML = `<div class="empty-state">Загрузка правил...</div>`;
+        return;
+      }
+      const rulesMarkup = rulesData.rules.map((section) => `
+        <div class="rules-section">
+          <strong>${escapeHtml(section.title)}</strong>
+          <ul>
+            ${section.items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
+          </ul>
+        </div>
+      `).join("");
+      const cardsMarkup = rulesData.cards.map((card) => `
+        <div class="event-card-row">
+          <strong>${escapeHtml(card.title)}</strong>
+          <div class="meta">${escapeHtml(card.description)}</div>
+        </div>
+      `).join("");
+      rulesModalContentNode.innerHTML = `
+        <div class="rules-layout">
+          <div class="modal-panel">
+            <div class="center-head">
+              <h3>Как играть</h3>
+              <div class="meta">${rulesData.rules.length} разделов</div>
+            </div>
+            <div class="rules-section-list">${rulesMarkup}</div>
+          </div>
+          <div class="modal-panel">
+            <div class="center-head">
+              <h3>Карточки событий</h3>
+              <div class="meta">${rulesData.cards.length} карт</div>
+            </div>
+            <div class="cards-list">${cardsMarkup}</div>
+          </div>
+        </div>
+      `;
+    };
+    const loadRules = async () => {
+      if (rulesData) return rulesData;
+      rulesData = await api("/api/rules");
+      return rulesData;
+    };
+    const openRulesModal = async () => {
+      setHidden(rulesModalBackdropNode, false);
+      renderRulesModal();
+      try {
+        await loadRules();
+        renderRulesModal();
+      } catch (error) {
+        rulesModalContentNode.innerHTML = `<div class="hint">Не удалось загрузить правила: ${escapeHtml(error.message)}</div>`;
+      }
+    };
+    const closeRulesModal = () => {
+      setHidden(rulesModalBackdropNode, true);
+    };
     const getActionableIncomingLoanOffers = () => (state?.loan_offers || []).filter((offer) =>
       offer.lender_id === playerId &&
       offer.status === "pending" &&
@@ -2195,6 +2340,7 @@
       setHidden(document.getElementById("join-game"), isJoined);
       setHidden(openFinanceModalButton, !inStartedGame || !isJoined || !hasActionableModalItems());
       openFinanceModalButton.disabled = !inStartedGame || !isJoined || !hasActionableModalItems();
+      setHidden(openRulesGameButton, !inStartedGame);
 
       Object.entries(actionButtons).forEach(([action, button]) => {
         const isVisible = availableActions.has(action);
@@ -2933,10 +3079,18 @@
     document.getElementById("place-bid").onclick = () => sendAction("place_bid", { bid: Number(bidValueInput.value || 0) });
     document.getElementById("pass-auction").onclick = () => sendAction("pass_auction");
     openFinanceModalButton.onclick = () => openFinanceModal("finance");
+    openRulesButton.onclick = () => openRulesModal();
+    openRulesGameButton.onclick = () => openRulesModal();
     document.getElementById("close-game-modal").onclick = closeFinanceModal;
+    document.getElementById("close-rules-modal").onclick = closeRulesModal;
     gameModalBackdropNode.onclick = (event) => {
       if (event.target === gameModalBackdropNode) {
         closeFinanceModal();
+      }
+    };
+    rulesModalBackdropNode.onclick = (event) => {
+      if (event.target === rulesModalBackdropNode) {
+        closeRulesModal();
       }
     };
     document.querySelectorAll("[data-modal-tab]").forEach((button) => {

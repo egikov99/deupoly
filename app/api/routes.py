@@ -1,8 +1,10 @@
 from fastapi import APIRouter, Depends, Request, Response, WebSocket, WebSocketDisconnect
 
 from app.config import get_settings
+from app.core.board import build_default_board, build_event_deck
 from app.core.exceptions import AuthenticationError, GameError
 from app.core.exceptions import AuthorizationError
+from app.models.domain import EventCard, EventEffect
 from app.models.api import (
     AdminCreateUserRequest,
     AdminResetPasswordRequest,
@@ -82,12 +84,104 @@ def _build_ice_servers() -> list[dict]:
     return ice_servers
 
 
+def _describe_event_card(card: EventCard, board_by_id: dict[int, str]) -> str:
+    if card.effect == EventEffect.GAIN_MONEY:
+        return f"Получить {card.amount}."
+    if card.effect == EventEffect.LOSE_MONEY:
+        return f"Заплатить {card.amount}."
+    if card.effect == EventEffect.MOVE_TO_START:
+        return f"Перейти на «Старт» и получить {max(card.amount, 400)}."
+    if card.effect == EventEffect.GO_TO_JAIL:
+        return "Отправиться в тюрьму."
+    if card.effect == EventEffect.ROLL_DICE:
+        return "Получить дополнительный бросок кубиков."
+    if card.effect == EventEffect.ATTACK_PLAYER:
+        return f"Забрать {card.amount} у следующего активного игрока."
+    if card.effect == EventEffect.MOVE_TO_TILE and card.target_position is not None:
+        return f"Перейти на клетку «{board_by_id.get(card.target_position, card.target_position)}»."
+    if card.effect == EventEffect.COLLECT_FROM_PLAYERS:
+        return f"Собрать по {card.amount} с каждого другого игрока."
+    if card.effect == EventEffect.PAY_PLAYERS:
+        return f"Заплатить каждому другому игроку по {card.amount}."
+    return "Применить эффект карточки."
+
+
 def get_router() -> APIRouter:
     router = APIRouter()
 
     @router.get("/health")
     async def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @router.get("/rules")
+    async def rules() -> dict:
+        board = build_default_board()
+        board_by_id = {tile.id: tile.name for tile in board}
+        cards = sorted(build_event_deck(), key=lambda card: int(card.id.removeprefix("e")))
+        return {
+            "rules": [
+                {
+                    "title": "Цель игры",
+                    "items": [
+                        "Покупайте активы, получайте аренду и доведите соперников до банкротства.",
+                        "Побеждает последний активный игрок за столом.",
+                    ],
+                },
+                {
+                    "title": "Ход игрока",
+                    "items": [
+                        "Бросок 2d6, перемещение, обработка клетки, затем доступные действия.",
+                        "Сервер полностью контролирует состояние игры, клиент только отправляет выбранные действия.",
+                    ],
+                },
+                {
+                    "title": "Клетки",
+                    "items": [
+                        "Старт: +200 при проходе, +400 при остановке после круга.",
+                        "Джекпот: +300.",
+                        "Налог: 10% от текущего баланса.",
+                        "Проверка: дубль или сумма больше 8 отправляет в тюрьму.",
+                        "Тюрьма: можно выйти за 50 до броска или ждать/выбросить дубль.",
+                    ],
+                },
+                {
+                    "title": "Активы и аренда",
+                    "items": [
+                        "Свободную недвижимость и транспорт можно купить, отказаться или выставить на аукцион.",
+                        "Монополия группы даёт +50% к аренде.",
+                        "Транспорт усиливается по количеству: x1, x2, x3, x5.",
+                    ],
+                },
+                {
+                    "title": "Экономика",
+                    "items": [
+                        "В начале хода начисляется пассивный доход: 12% от суммарной аренды активов.",
+                        "Содержание активов: 2% от их стоимости.",
+                        "Банковский кредит: 15% за 10 ходов, досрочное погашение дешевле.",
+                        "Займы между игроками: 10%, обязательно под залог активов.",
+                    ],
+                },
+                {
+                    "title": "Сделки",
+                    "items": [
+                        "В свой ход можно предложить покупку чужого актива или продажу своего.",
+                        "Получатель принимает или отклоняет сделку, пока ход инициатора не завершён.",
+                        "Актив в залоге или другой сделке нельзя продать.",
+                    ],
+                },
+            ],
+            "cards": [
+                {
+                    "id": card.id,
+                    "title": card.title,
+                    "effect": card.effect.value,
+                    "amount": card.amount,
+                    "target_position": card.target_position,
+                    "description": _describe_event_card(card, board_by_id),
+                }
+                for card in cards
+            ],
+        }
 
     @router.post("/auth/register", response_model=AuthResponse)
     async def register(
